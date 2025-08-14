@@ -9,8 +9,12 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS
+        value: --dns-result-order=ipv4first
       - key: PORT
         value: 8080
+      - key: PGSSLMODE
+        value: require
       # App URLs (set PUBLIC_ORIGIN to your Render URL after first deploy)
       - key: PUBLIC_ORIGIN
         value: https://your-render-url.onrender.com

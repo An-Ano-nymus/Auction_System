@@ -1,4 +1,5 @@
 import { Sequelize, DataTypes } from 'sequelize'
+import { URL } from 'url'
 
 const DATABASE_URL = process.env.DATABASE_URL
 if (!DATABASE_URL) {
@@ -6,13 +7,23 @@ if (!DATABASE_URL) {
 }
 
 export const sequelize = DATABASE_URL
-  ? new Sequelize(DATABASE_URL, {
-      dialect: 'postgres',
-      logging: false,
-      dialectOptions: {
-        ssl: { require: true, rejectUnauthorized: false }
-      }
-    })
+  ? (() => {
+      const u = new URL(DATABASE_URL)
+      const username = decodeURIComponent(u.username)
+      const password = decodeURIComponent(u.password)
+      const database = u.pathname.replace(/^\//, '')
+      const host = process.env.PGHOSTADDR || u.hostname
+      const port = Number(u.port || 5432)
+      return new Sequelize(database, username, password, {
+        host,
+        port,
+        dialect: 'postgres',
+        logging: false,
+        dialectOptions: {
+          ssl: { require: true, rejectUnauthorized: false }
+        }
+      })
+    })()
   : null
 
 export let AuctionModel: any
