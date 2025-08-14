@@ -28,6 +28,7 @@ await app.register(cors, { origin: true, credentials: true });
 await app.register(sensible);
 await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
 // Serve static UI if present (client build copied to ../client-dist)
+// Admin diagnostics: validates configured services and key envs
 try {
   const __filename = fileURLToPath(import.meta.url)
   const __dirname = dirname(__filename)
@@ -115,12 +116,14 @@ app.post('/api/auctions', async (req, reply) => {
 app.get('/api/auctions', async () => {
   if (!sequelize) return { items: [] };
   const rows = await AuctionModel.findAll({ order: [['createdAt', 'DESC']] })
-  const list: Auction[] = rows.map((r: any) => ({
+  const list = rows.map((r: any) => ({
     id: r.id,
     title: r.title,
     description: r.description ?? undefined,
     startingPrice: Number(r.startingPrice),
     currentPrice: Number(r.currentPrice),
+    bidIncrement: Number(r.bidIncrement),
+    goLiveAt: new Date(r.goLiveAt).toISOString(),
     endsAt: new Date(r.endsAt).toISOString(),
     createdAt: new Date(r.createdAt).toISOString()
   }))

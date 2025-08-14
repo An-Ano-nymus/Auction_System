@@ -31,6 +31,7 @@ export function App() {
   const [goLiveAt, setGoLiveAt] = useState<string>(() => new Date(Date.now() + 60_000).toISOString().slice(0,16))
   const [session, setSession] = useState<any>(null)
   const [email, setEmail] = useState('')
+  const [diag, setDiag] = useState<any | null>(null)
 
   const authHeaders = useMemo(() => {
     const headers: Record<string, string> = { 'content-type': 'application/json' }
@@ -43,6 +44,17 @@ export function App() {
     const res = await fetch(`${API_BASE}/api/auctions`)
     const data = await res.json()
     setItems(data.items)
+  }
+
+  async function runDiagnostics() {
+    try {
+      const res = await fetch(`${API_BASE}/health/check${session?.access_token ? '' : ''}`, {
+        headers: session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}
+      })
+      setDiag(await res.json())
+    } catch (e) {
+      setDiag({ ok: false, error: String(e) })
+    }
   }
 
   useEffect(() => {
@@ -110,7 +122,7 @@ export function App() {
   }
 
   return (
-    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: 24, maxWidth: 1000, margin: '0 auto' }}>
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: 24, maxWidth: 1100, margin: '0 auto', background: 'linear-gradient(180deg,#f8fafc,#ffffff)' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <h1 style={{ margin: 0 }}>Realtime Auctions</h1>
         <div>
@@ -122,7 +134,10 @@ export function App() {
               </div>
             ) : (
               <form onSubmit={signIn} style={{ display: 'flex', gap: 8 }}>
-                <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+                  Email
+                  <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                </label>
                 <button>Sign in</button>
               </form>
             )
@@ -132,23 +147,38 @@ export function App() {
         </div>
       </header>
 
-      <section style={{ border: '1px solid #eee', padding: 16, borderRadius: 8, marginBottom: 24 }}>
+      <section style={{ border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, marginBottom: 24, background: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}>
         <h3 style={{ marginTop: 0 }}>Create auction</h3>
-        <form onSubmit={createAuction} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px 220px 120px', gap: 8, alignItems: 'center' }}>
-          <input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <input type="number" placeholder="Starting" value={startingPrice} onChange={(e) => setStartingPrice(Number(e.target.value))} />
-          <input type="number" placeholder="Increment" value={bidIncrement} onChange={(e) => setBidIncrement(Number(e.target.value))} />
-          <input type="datetime-local" value={goLiveAt} onChange={(e) => setGoLiveAt(e.target.value)} />
-          <input type="number" placeholder="Minutes" value={durationMinutes} onChange={(e) => setDurationMinutes(Number(e.target.value))} />
-          <button>Create</button>
+        <form onSubmit={createAuction} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px 240px 140px 120px', gap: 12, alignItems: 'end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+            Title
+            <input placeholder="Vintage camera" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+            Starting Price
+            <input type="number" min={0} step={1} placeholder="100" value={startingPrice} onChange={(e) => setStartingPrice(Number(e.target.value))} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+            Bid Increment
+            <input type="number" min={1} step={1} placeholder="5" value={bidIncrement} onChange={(e) => setBidIncrement(Number(e.target.value))} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+            Go-live (local)
+            <input type="datetime-local" value={goLiveAt} onChange={(e) => setGoLiveAt(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+            Duration (mins)
+            <input type="number" min={1} step={1} placeholder="10" value={durationMinutes} onChange={(e) => setDurationMinutes(Number(e.target.value))} />
+          </label>
+          <button style={{ transition: 'transform .1s ease' }} onMouseDown={(e) => (e.currentTarget.style.transform = 'scale(0.98)')} onMouseUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}>Create</button>
         </form>
       </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
         {items.map((a) => {
           const { h, m, s, done } = useCountdown(a.endsAt)
           return (
-            <article key={a.id} style={{ border: '1px solid #e5e5e5', borderRadius: 10, padding: 16, boxShadow: '0 1px 2px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <article key={a.id} style={{ border: '1px solid #e6eaf0', borderRadius: 14, padding: 16, boxShadow: '0 12px 28px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: 12, background: '#fff', transition: 'transform .15s ease, box-shadow .2s ease' }} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 16px 32px rgba(0,0,0,0.08)'}} onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 12px 28px rgba(0,0,0,0.05)'}}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <h3 style={{ margin: 0 }}>{a.title}</h3>
                 <span style={{ fontSize: 12, opacity: 0.7 }}>{done ? 'Ended' : `Ends in ${h}h ${m}m ${s}s`}</span>
@@ -156,6 +186,9 @@ export function App() {
               <div style={{ fontSize: 18 }}>
                 Current: <strong>${Number(a.currentPrice).toFixed(2)}</strong>
               </div>
+              {a.bidIncrement ? (
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Min increment: ${Number(a.bidIncrement).toFixed(2)}</div>
+              ) : null}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 1)}>Bid +1</button>
                 <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 5)}>Bid +5</button>
@@ -164,6 +197,19 @@ export function App() {
           )
         })}
       </div>
+
+      <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0 }}>Diagnostics</h3>
+          <button onClick={runDiagnostics}>Run checks</button>
+        </div>
+        <div style={{ fontSize: 12, opacity: 0.8, marginTop: 8 }}>
+          Checks DB, Redis, Supabase, SendGrid, and PUBLIC_ORIGIN (admin only).
+        </div>
+        {diag && (
+          <pre style={{ background: '#0f172a', color: '#e2e8f0', padding: 12, borderRadius: 8, marginTop: 12, overflow: 'auto' }}>{JSON.stringify(diag, null, 2)}</pre>
+        )}
+      </section>
     </div>
   )
 }
