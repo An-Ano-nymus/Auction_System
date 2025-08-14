@@ -23,3 +23,15 @@ export async function getUserEmail(userId: string): Promise<string | null> {
     return null
   }
 }
+
+export async function getUserPhone(userId: string): Promise<string | null> {
+  const sb = getAdminClient()
+  if (!sb) return null
+  try {
+    const res = await sb.auth.admin.getUserById(userId)
+    const u: any = res.data.user
+    return u?.phone || u?.user_metadata?.phone || null
+  } catch {
+    return null
+  }
+}

@@ -15,11 +15,13 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'url';
 import { join, dirname } from 'path';
 import { sendEmail, buildInvoiceHtml } from './email.js';
-import { getUserEmail } from './users.js';
+import { getUserEmail, getUserPhone } from './users.js';
+import { sendSms } from './sms.js';
 
 // Basic runtime config
 const PORT = Number(process.env.PORT || 8080);
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || 'http://localhost:5173';
+const ADMIN_USER_ID = process.env.ADMIN_USER_ID;
 
 // store abstraction removed from runtime; Sequelize is the primary store
 
@@ -214,6 +216,68 @@ app.get('/api/notifications', async (req, reply) => {
   return { items: rows.map((n: any) => ({ id: n.id, type: n.type, payload: n.payload, read: n.read, createdAt: new Date(n.createdAt).toISOString() })) }
 })
 
+// Who am I
+app.get('/api/me', async (req, reply) => {
+  const user = await getUserId(req)
+  if (!user) return reply.unauthorized('Missing user')
+  return { id: user, isAdmin: !!ADMIN_USER_ID && user === ADMIN_USER_ID }
+})
+
+// Admin endpoints
+app.get('/admin/auctions', async (req, reply) => {
+  const user = await getUserId(req)
+  if (!user) return reply.unauthorized('Missing user')
+  if (!ADMIN_USER_ID || user !== ADMIN_USER_ID) return reply.forbidden('Not admin')
+  if (!sequelize) return reply.send({ items: [] })
+  const rows = await AuctionModel.findAll({ order: [['createdAt','DESC']], limit: 200 })
+  return { items: rows.map((r:any)=>({ id:r.id, title:r.title, status:r.status, currentPrice:Number(r.currentPrice), bidIncrement:Number(r.bidIncrement), goLiveAt:new Date(r.goLiveAt).toISOString(), endsAt:new Date(r.endsAt).toISOString() })) }
+})
+
+const AdminAdjustSchema = z.object({ minutes: z.number().int().min(1).max(7*24*60).optional() })
+app.post('/admin/auctions/:id/start', async (req, reply) => {
+  const user = await getUserId(req)
+  if (!user) return reply.unauthorized('Missing user')
+  if (!ADMIN_USER_ID || user !== ADMIN_USER_ID) return reply.forbidden('Not admin')
+  if (!sequelize) return reply.internalServerError('DB not configured')
+  const { id } = req.params as { id:string }
+  const parsed = AdminAdjustSchema.safeParse(req.body || {})
+  if (!parsed.success) return reply.badRequest(parsed.error.message)
+  const a = await AuctionModel.findByPk(id)
+  if (!a) return reply.notFound('Not found')
+  const now = new Date()
+  const duration = (parsed.data.minutes ?? 10) * 60_000
+  a.goLiveAt = now as any
+  a.endsAt = new Date(now.getTime()+duration) as any
+  a.status = 'live' as any
+  await a.save()
+  // seed redis
+  if (redisForBids) await redisForBids.hset(`auction:${a.id}`, { current: Number(a.currentPrice), step: Number(a.bidIncrement), endsAt: (a.endsAt as any).toISOString?.() || new Date(a.endsAt).toISOString() })
+  broadcast(JSON.stringify({ type:'auction:started', auctionId: a.id }))
+  return { ok:true }
+})
+
+app.post('/admin/auctions/:id/reset', async (req, reply) => {
+  const user = await getUserId(req)
+  if (!user) return reply.unauthorized('Missing user')
+  if (!ADMIN_USER_ID || user !== ADMIN_USER_ID) return reply.forbidden('Not admin')
+  if (!sequelize) return reply.internalServerError('DB not configured')
+  const { id } = req.params as { id:string }
+  const parsed = AdminAdjustSchema.safeParse(req.body || {})
+  if (!parsed.success) return reply.badRequest(parsed.error.message)
+  const a = await AuctionModel.findByPk(id)
+  if (!a) return reply.notFound('Not found')
+  const now = new Date()
+  const duration = (parsed.data.minutes ?? 10) * 60_000
+  a.currentPrice = a.startingPrice
+  a.goLiveAt = now as any
+  a.endsAt = new Date(now.getTime()+duration) as any
+  a.status = 'scheduled' as any
+  await a.save()
+  if (redisForBids) await redisForBids.hset(`auction:${a.id}`, { current: Number(a.currentPrice), step: Number(a.bidIncrement), endsAt: (a.endsAt as any).toISOString?.() || new Date(a.endsAt).toISOString() })
+  broadcast(JSON.stringify({ type:'auction:reset', auctionId: a.id }))
+  return { ok:true }
+})
+
 // Bid schema
 const BidSchema = z.object({ amount: z.number().positive() });
 
@@ -316,6 +380,11 @@ app.post('/api/auctions/:id/decision', async (req, reply) => {
   const html = buildInvoiceHtml({ auctionTitle: a.title, amount: Number(topBid.amount), buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: a.id })
   if (buyerEmail) await sendEmail(buyerEmail, `You won: ${a.title}`, `You won auction ${a.title} for $${Number(topBid.amount).toFixed(2)}`, { html })
   if (sellerEmail) await sendEmail(sellerEmail, `Sold: ${a.title}`, `Your auction ${a.title} sold for $${Number(topBid.amount).toFixed(2)}`, { html })
+  // SMS (best-effort)
+  const buyerPhone = await getUserPhone(topBid.bidderId)
+  const sellerPhone = await getUserPhone(a.sellerId)
+  if (buyerPhone) await sendSms(buyerPhone, `You won ${a.title} for $${Number(topBid.amount).toFixed(2)}`)
+  if (sellerPhone) await sendSms(sellerPhone, `Sold ${a.title} for $${Number(topBid.amount).toFixed(2)}`)
     return { ok: true }
   }
   if (parsed.data.action === 'reject') {
@@ -359,6 +428,10 @@ app.post('/api/counter/:id/reply', async (req, reply) => {
   const html = buildInvoiceHtml({ auctionTitle: a.title, amount: Number(offer.amount), buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: a.id })
   if (buyerEmail) await sendEmail(buyerEmail, `Offer accepted: ${a.title}`, `Seller accepted at $${Number(offer.amount).toFixed(2)}`, { html })
   if (sellerEmail) await sendEmail(sellerEmail, `You accepted: ${a.title}`, `You accepted the offer at $${Number(offer.amount).toFixed(2)}`, { html })
+  const buyerPhone = await getUserPhone(offer.buyerId)
+  const sellerPhone = await getUserPhone(offer.sellerId)
+  if (buyerPhone) await sendSms(buyerPhone, `Seller accepted your offer for ${a.title} at $${Number(offer.amount).toFixed(2)}`)
+  if (sellerPhone) await sendSms(sellerPhone, `You accepted buyer offer for ${a.title} at $${Number(offer.amount).toFixed(2)}`)
   } else {
     offer.status = 'rejected' as any
     await offer.save()

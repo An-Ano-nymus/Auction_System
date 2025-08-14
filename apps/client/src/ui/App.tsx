@@ -51,6 +51,9 @@ export function App() {
   const [session, setSession] = useState<any>(null)
   const [email, setEmail] = useState('')
   const [diag, setDiag] = useState<any | null>(null)
+  const [me, setMe] = useState<{ id: string; isAdmin: boolean } | null>(null)
+  const [notifications, setNotifications] = useState<any[]>([])
+  const [adminAuctions, setAdminAuctions] = useState<any[]>([])
 
   const authHeaders = useMemo(() => {
     const headers: Record<string, string> = { 'content-type': 'application/json' }
@@ -70,6 +73,33 @@ export function App() {
     }
   }
 
+  async function loadMe() {
+    try {
+      const res = await fetch(api('/api/me'), { headers: authHeaders })
+      if (res.ok) setMe(await res.json())
+    } catch {}
+  }
+
+  async function loadNotifications() {
+    try {
+      const res = await fetch(api('/api/notifications'), { headers: authHeaders })
+      if (res.ok) {
+        const data = await res.json()
+        setNotifications(data.items || [])
+      }
+    } catch {}
+  }
+
+  async function loadAdminAuctions() {
+    try {
+      const res = await fetch(api('/admin/auctions'), { headers: authHeaders })
+      if (res.ok) {
+        const data = await res.json()
+        setAdminAuctions(data.items || [])
+      }
+    } catch {}
+  }
+
   async function runDiagnostics() {
     try {
       const res = await fetch(api('/health/check'), {
@@ -85,6 +115,8 @@ export function App() {
 
   useEffect(() => {
     load()
+  loadMe()
+  loadNotifications()
   }, [])
 
   // Supabase session
@@ -133,6 +165,7 @@ export function App() {
       setStartingPrice(0)
       setBidIncrement(1)
       load()
+  loadNotifications()
     } else {
       const t = await res.text(); alert(t)
     }
@@ -145,6 +178,15 @@ export function App() {
       body: JSON.stringify({ amount })
     })
     if (!res.ok) alert(await res.text())
+  }
+
+  async function adminStart(id: string) {
+    const res = await fetch(api(`/admin/auctions/${id}/start`), { method: 'POST', headers: authHeaders })
+    if (res.ok) { loadAdminAuctions(); load() } else { alert(await res.text()) }
+  }
+  async function adminReset(id: string) {
+    const res = await fetch(api(`/admin/auctions/${id}/reset`), { method: 'POST', headers: authHeaders })
+    if (res.ok) { loadAdminAuctions(); load() } else { alert(await res.text()) }
   }
 
   return (
@@ -236,6 +278,44 @@ export function App() {
           <pre style={{ background: '#0f172a', color: '#e2e8f0', padding: 12, borderRadius: 8, marginTop: 12, overflow: 'auto' }}>{JSON.stringify(diag, null, 2)}</pre>
         )}
       </section>
+
+      <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
+        <h3 style={{ marginTop: 0 }}>Notifications</h3>
+        {notifications.length === 0 ? (
+          <div style={{ opacity: 0.7, fontSize: 14 }}>No notifications yet.</div>
+        ) : (
+          <ul>
+            {notifications.map((n) => (
+              <li key={n.id}>
+                <code style={{ fontSize: 12 }}>{n.type}</code> — {n.payload?.auctionId} {n.payload?.amount ? `($${Number(n.payload.amount).toFixed(2)})` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {me?.isAdmin && (
+        <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0 }}>Admin</h3>
+            <button onClick={loadAdminAuctions}>Refresh</button>
+          </div>
+          {adminAuctions.length === 0 ? (
+            <div style={{ opacity: 0.7, fontSize: 14 }}>No auctions.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {adminAuctions.map((a) => (
+                <div key={a.id} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                  <strong>{a.title}</strong>
+                  <span style={{ fontSize: 12, opacity: 0.7 }}>status: {a.status}</span>
+                  <button onClick={() => adminStart(a.id)}>Start</button>
+                  <button onClick={() => adminReset(a.id)}>Reset</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }
