@@ -224,6 +224,10 @@ app.get('/api/auctions/:id/bids', async (req, reply) => {
 app.get('/api/notifications', async (req, reply) => {
   const userId = await getUserId(req)
   if (!userId) return reply.unauthorized('Missing user')
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.listNotifications(userId)
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.send({ items: [] })
   const rows = await NotificationModel.findAll({ where: { userId }, order: [['createdAt','DESC']], limit: 50 })
   return { items: rows.map((n: any) => ({ id: n.id, type: n.type, payload: n.payload, read: n.read, createdAt: new Date(n.createdAt).toISOString() })) }
@@ -241,6 +245,10 @@ app.get('/admin/auctions', async (req, reply) => {
   const user = await getUserId(req)
   if (!user) return reply.unauthorized('Missing user')
   if (!ADMIN_USER_ID || user !== ADMIN_USER_ID) return reply.forbidden('Not admin')
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.listAuctions()
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.send({ items: [] })
   const rows = await AuctionModel.findAll({ order: [['createdAt','DESC']], limit: 200 })
   return { items: rows.map((r:any)=>({ id:r.id, title:r.title, status:r.status, currentPrice:Number(r.currentPrice), bidIncrement:Number(r.bidIncrement), goLiveAt:new Date(r.goLiveAt).toISOString(), endsAt:new Date(r.endsAt).toISOString() })) }
@@ -251,10 +259,19 @@ app.post('/admin/auctions/:id/start', async (req, reply) => {
   const user = await getUserId(req)
   if (!user) return reply.unauthorized('Missing user')
   if (!ADMIN_USER_ID || user !== ADMIN_USER_ID) return reply.forbidden('Not admin')
-  if (!sequelize) return reply.internalServerError('DB not configured')
   const { id } = req.params as { id:string }
   const parsed = AdminAdjustSchema.safeParse(req.body || {})
   if (!parsed.success) return reply.badRequest(parsed.error.message)
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.startAuction(id, parsed.data.minutes ?? 10)
+    if (out.status === 200) {
+      const msg = JSON.stringify({ type:'auction:started', auctionId: id })
+      broadcast(msg)
+      try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+    }
+    return reply.code(out.status).send(out.body)
+  }
+  if (!sequelize) return reply.internalServerError('DB not configured')
   const a = await AuctionModel.findByPk(id)
   if (!a) return reply.notFound('Not found')
   const now = new Date()
@@ -273,10 +290,19 @@ app.post('/admin/auctions/:id/reset', async (req, reply) => {
   const user = await getUserId(req)
   if (!user) return reply.unauthorized('Missing user')
   if (!ADMIN_USER_ID || user !== ADMIN_USER_ID) return reply.forbidden('Not admin')
-  if (!sequelize) return reply.internalServerError('DB not configured')
   const { id } = req.params as { id:string }
   const parsed = AdminAdjustSchema.safeParse(req.body || {})
   if (!parsed.success) return reply.badRequest(parsed.error.message)
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.resetAuction(id, parsed.data.minutes ?? 10)
+    if (out.status === 200) {
+      const msg = JSON.stringify({ type:'auction:reset', auctionId: id })
+      broadcast(msg)
+      try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+    }
+    return reply.code(out.status).send(out.body)
+  }
+  if (!sequelize) return reply.internalServerError('DB not configured')
   const a = await AuctionModel.findByPk(id)
   if (!a) return reply.notFound('Not found')
   const now = new Date()
@@ -393,6 +419,27 @@ app.post('/api/auctions/:id/decision', async (req, reply) => {
     const parsed = DecisionSchema.safeParse(req.body)
     if (!parsed.success) return reply.badRequest(parsed.error.message)
     const out = await supaRepo.decision(id, userId, parsed.data.action, parsed.data.amount)
+    if (out.status === 200) {
+      if (parsed.data.action === 'accept' && out.body?.winnerId) {
+        const buyerEmail = await getUserEmail(out.body.winnerId)
+        const sellerEmail = await getUserEmail(out.body.sellerId || userId)
+        const html = buildInvoiceHtml({ auctionTitle: out.body.auctionTitle || 'Auction', amount: Number(out.body.amount), buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: id })
+        if (buyerEmail) await sendEmail(buyerEmail, `You won: ${out.body.auctionTitle || 'Auction'}`, `You won auction ${out.body.auctionTitle || id} for $${Number(out.body.amount).toFixed(2)}`, { html })
+        if (sellerEmail) await sendEmail(sellerEmail, `Sold: ${out.body.auctionTitle || 'Auction'}`, `Your auction ${out.body.auctionTitle || id} sold for $${Number(out.body.amount).toFixed(2)}`, { html })
+        const buyerPhone = await getUserPhone(out.body.winnerId)
+        const sellerPhone = await getUserPhone(out.body.sellerId || userId)
+        if (buyerPhone) await sendSms(buyerPhone, `You won ${out.body.auctionTitle || 'item'} for $${Number(out.body.amount).toFixed(2)}`)
+        if (sellerPhone) await sendSms(sellerPhone, `Sold ${out.body.auctionTitle || 'item'} for $${Number(out.body.amount).toFixed(2)}`)
+        const msg = JSON.stringify({ type: 'auction:accepted', auctionId: id, winnerId: out.body.winnerId, amount: Number(out.body.amount) })
+        broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+      } else if (parsed.data.action === 'reject') {
+        const msg = JSON.stringify({ type: 'auction:rejected', auctionId: id })
+        broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+      } else if (parsed.data.action === 'counter') {
+        const msg = JSON.stringify({ type: 'offer:counter', auctionId: id, amount: parsed.data.amount })
+        broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+      }
+    }
     return reply.code(out.status).send(out.body)
   }
   if (!sequelize) return reply.internalServerError('DB not configured');
@@ -445,6 +492,22 @@ app.post('/api/counter/:id/reply', async (req, reply) => {
   if (!userId) return reply.unauthorized('Missing user');
   if (USE_SUPABASE_REST) {
     const out = await supaRepo.counterReply((req.params as any).id, userId, !!(req.body as any).accept)
+    if (out.status === 200) {
+      if ((req.body as any).accept) {
+        const aTitle = out.body?.auctionTitle || 'Auction'
+        const amount = Number(out.body?.amount)
+        const sellerEmail = await getUserEmail(out.body?.sellerId)
+        const buyerEmail = await getUserEmail(userId)
+        const html = buildInvoiceHtml({ auctionTitle: aTitle, amount, buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: out.body?.auctionId || '' })
+        if (buyerEmail) await sendEmail(buyerEmail, `Offer accepted: ${aTitle}`, `Seller accepted at $${amount.toFixed(2)}`, { html })
+        if (sellerEmail) await sendEmail(sellerEmail, `You accepted: ${aTitle}`, `You accepted the offer at $${amount.toFixed(2)}`, { html })
+        const msg = JSON.stringify({ type: 'offer:accepted', auctionId: out.body?.auctionId, amount })
+        broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+      } else {
+        const msg = JSON.stringify({ type: 'offer:rejected', auctionId: out.body?.auctionId })
+        broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+      }
+    }
     return reply.code(out.status).send(out.body)
   }
   if (!sequelize) return reply.internalServerError('DB not configured');

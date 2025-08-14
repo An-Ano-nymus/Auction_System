@@ -106,7 +106,7 @@ export async function decision(auctionId: string, sellerId: string, action: 'acc
   if (action === 'accept') {
     await supa.from('auctions').update({ status: 'closed' }).eq('id', auctionId)
     await supa.from('notifications').insert({ id: nanoid(12), userId: tb.bidderId, type: 'offer:accepted', payload: { auctionId, amount: Number(tb.amount) }, read: false })
-    return { status: 200, body: { ok: true, winnerId: tb.bidderId, amount: Number(tb.amount) } }
+    return { status: 200, body: { ok: true, winnerId: tb.bidderId, amount: Number(tb.amount), sellerId, auctionTitle: a.title } }
   }
   if (action === 'reject') {
     await supa.from('auctions').update({ status: 'closed' }).eq('id', auctionId)
@@ -114,9 +114,10 @@ export async function decision(auctionId: string, sellerId: string, action: 'acc
     return { status: 200, body: { ok: true } }
   }
   if (!amount) return { status: 400, body: 'Counter amount required' }
-  await supa.from('counter_offers').insert({ id: nanoid(12), auctionId, sellerId, buyerId: tb.bidderId, amount, status: 'pending' })
-  await supa.from('notifications').insert({ id: nanoid(12), userId: tb.bidderId, type: 'offer:counter', payload: { auctionId, amount }, read: false })
-  return { status: 200, body: { ok: true } }
+  const { data: counter, error: ce } = await supa.from('counter_offers').insert({ id: nanoid(12), auctionId, sellerId, buyerId: tb.bidderId, amount, status: 'pending' }).select().single()
+  if (ce) return { status: 500, body: ce.message }
+  await supa.from('notifications').insert({ id: nanoid(12), userId: tb.bidderId, type: 'offer:counter', payload: { auctionId, amount, counterId: counter.id }, read: false })
+  return { status: 200, body: { ok: true, counterId: counter.id } }
 }
 
 export async function counterReply(counterId: string, userId: string, accept: boolean): Promise<HttpResult> {
@@ -129,10 +130,46 @@ export async function counterReply(counterId: string, userId: string, accept: bo
   if (accept) {
     await supa.from('counter_offers').update({ status: 'accepted' }).eq('id', counterId)
     await supa.from('auctions').update({ currentPrice: c.amount, status: 'closed' }).eq('id', c.auctionId)
-    return { status: 200, body: { ok: true, amount: Number(c.amount) } }
+    return { status: 200, body: { ok: true, amount: Number(c.amount), auctionId: c.auctionId, sellerId: a.sellerId, auctionTitle: a.title } }
   } else {
     await supa.from('counter_offers').update({ status: 'rejected' }).eq('id', counterId)
     await supa.from('auctions').update({ status: 'closed' }).eq('id', c.auctionId)
-    return { status: 200, body: { ok: true } }
+    return { status: 200, body: { ok: true, auctionId: c.auctionId, sellerId: a.sellerId } }
   }
+}
+
+export async function startAuction(auctionId: string, minutes: number): Promise<HttpResult> {
+  if (!supa) return { status: 500, body: 'Supabase not configured' }
+  const { data: a } = await supa.from('auctions').select('*').eq('id', auctionId).single()
+  if (!a) return { status: 404, body: 'Not found' }
+  const now = new Date()
+  const ends = new Date(now.getTime() + minutes * 60_000)
+  const { error } = await supa.from('auctions').update({ goLiveAt: now.toISOString(), endsAt: ends.toISOString(), status: 'live' }).eq('id', auctionId)
+  if (error) return { status: 500, body: error.message }
+  return { status: 200, body: { ok: true, endsAt: ends.toISOString() } }
+}
+
+export async function resetAuction(auctionId: string, minutes: number): Promise<HttpResult> {
+  if (!supa) return { status: 500, body: 'Supabase not configured' }
+  const { data: a } = await supa.from('auctions').select('*').eq('id', auctionId).single()
+  if (!a) return { status: 404, body: 'Not found' }
+  const now = new Date()
+  const ends = new Date(now.getTime() + minutes * 60_000)
+  const { error } = await supa.from('auctions').update({ currentPrice: a.startingPrice, goLiveAt: now.toISOString(), endsAt: ends.toISOString(), status: 'scheduled' }).eq('id', auctionId)
+  if (error) return { status: 500, body: error.message }
+  return { status: 200, body: { ok: true, endsAt: ends.toISOString() } }
+}
+
+export async function getTopBid(auctionId: string): Promise<{ bidderId: string; amount: number } | null> {
+  if (!supa) return null
+  const { data: rows } = await supa.from('bids').select('bidderId,amount').eq('auctionId', auctionId).order('amount', { ascending: false }).limit(1)
+  const tb = rows && rows[0]
+  return tb ? { bidderId: tb.bidderId, amount: Number(tb.amount) } : null
+}
+
+export async function listNotifications(userId: string): Promise<HttpResult> {
+  if (!supa) return { status: 200, body: { items: [] } }
+  const { data, error } = await supa.from('notifications').select('*').eq('userId', userId).order('createdAt', { ascending: false }).limit(50)
+  if (error) return { status: 500, body: error.message }
+  return { status: 200, body: { items: data } }
 }

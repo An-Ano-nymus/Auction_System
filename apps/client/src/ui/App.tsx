@@ -41,7 +41,81 @@ function useCountdown(targetIso: string) {
   return { h, m, s, done: ms === 0 }
 }
 
+function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; items: any[]; placeBid: (id: string, amount: number) => Promise<void> }) {
+  function useCountdown(targetIso: string) {
+    const [now, setNow] = useState(Date.now())
+    useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
+    const ends = useMemo(() => new Date(targetIso).getTime(), [targetIso])
+    const ms = Math.max(0, ends - now); const s = Math.floor(ms/1000)%60; const m = Math.floor(ms/1000/60)%60; const h = Math.floor(ms/1000/60/60)
+    return { h,m,s,done: ms===0 }
+  }
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+        {items.map((a) => {
+          const { h, m, s, done } = useCountdown(a.endsAt)
+          return (
+            <article key={a.id} style={{ border: '1px solid #e6eaf0', borderRadius: 14, padding: 16, boxShadow: '0 12px 28px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: 12, background: '#fff' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <h3 style={{ margin: 0 }}>{a.title}</h3>
+                <span style={{ fontSize: 12, opacity: 0.7 }}>{done ? 'Ended' : `Ends in ${h}h ${m}m ${s}s`}</span>
+              </div>
+              <div style={{ fontSize: 18 }}>Current: <strong>${Number(a.currentPrice).toFixed(2)}</strong></div>
+              {a.bidIncrement ? (<div style={{ fontSize: 12, opacity: 0.7 }}>Min increment: ${Number(a.bidIncrement).toFixed(2)}</div>) : null}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 1)}>Bid +1</button>
+                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 5)}>Bid +5</button>
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function AdminPage(props: { authHeaders: any; load: () => Promise<void>; loadAdminAuctions: () => Promise<void>; adminAuctions: any[]; notifications: any[]; createAuction: (e: React.FormEvent) => Promise<void>; title: string; setTitle: any; startingPrice: number; setStartingPrice: any; bidIncrement: number; setBidIncrement: any; goLiveAt: string; setGoLiveAt: any; durationMinutes: number; setDurationMinutes: any; adminStart: (id: string) => Promise<void>; adminReset: (id: string) => Promise<void>; }) {
+  const { adminAuctions, notifications } = props
+  return (
+    <div>
+      <section style={{ border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, marginBottom: 24, background: '#fff' }}>
+        <h3 style={{ marginTop: 0 }}>Host auction</h3>
+        <form onSubmit={props.createAuction} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px 240px 140px 120px', gap: 12, alignItems: 'end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Title<input placeholder="Vintage camera" value={props.title} onChange={(e) => props.setTitle(e.target.value)} /></label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Starting Price<input type="number" min={0} step={1} value={props.startingPrice} onChange={(e) => props.setStartingPrice(Number(e.target.value))} /></label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Bid Increment<input type="number" min={1} step={1} value={props.bidIncrement} onChange={(e) => props.setBidIncrement(Number(e.target.value))} /></label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Go-live<input type="datetime-local" value={props.goLiveAt} onChange={(e) => props.setGoLiveAt(e.target.value)} /></label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Duration (mins)<input type="number" min={1} step={1} value={props.durationMinutes} onChange={(e) => props.setDurationMinutes(Number(e.target.value))} /></label>
+          <button>Create</button>
+        </form>
+      </section>
+      <section style={{ border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
+        <h3 style={{ marginTop: 0 }}>Admin operations</h3>
+        {adminAuctions.length === 0 ? (<div style={{ opacity: 0.7 }}>No auctions.</div>) : (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {adminAuctions.map((a) => (
+              <div key={a.id} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <strong>{a.title}</strong>
+                <span style={{ fontSize: 12, opacity: 0.7 }}>status: {a.status}</span>
+                <button onClick={() => props.adminStart(a.id)}>Start</button>
+                <button onClick={() => props.adminReset(a.id)}>Reset</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
+        <h3 style={{ marginTop: 0 }}>Notifications</h3>
+        {notifications.length === 0 ? (<div style={{ opacity: 0.7 }}>No notifications.</div>) : (
+          <ul>{notifications.map((n) => (<li key={n.id}><code style={{ fontSize: 12 }}>{n.type}</code> — {n.payload?.auctionId} {n.payload?.amount ? `($${Number(n.payload.amount).toFixed(2)})` : ''}</li>))}</ul>
+        )}
+      </section>
+    </div>
+  )
+}
+
 export function App() {
+  const [page, setPage] = useState<'live'|'admin'>('live')
   const [items, setItems] = useState<any[]>([])
   const [title, setTitle] = useState('')
   const [startingPrice, setStartingPrice] = useState(0)
@@ -193,7 +267,13 @@ export function App() {
   return (
     <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: 24, maxWidth: 1100, margin: '0 auto', background: 'linear-gradient(180deg,#f8fafc,#ffffff)' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h1 style={{ margin: 0 }}>Realtime Auctions</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <h1 style={{ margin: 0 }}>Realtime Auctions</h1>
+          <nav style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setPage('live')} disabled={page==='live'}>Live</button>
+            <button onClick={() => setPage('admin')} disabled={page==='admin'}>Admin</button>
+          </nav>
+        </div>
         <div>
           {sb ? (
             session ? (
@@ -216,56 +296,30 @@ export function App() {
         </div>
       </header>
 
-      <section style={{ border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, marginBottom: 24, background: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}>
-        <h3 style={{ marginTop: 0 }}>Create auction</h3>
-        <form onSubmit={createAuction} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px 240px 140px 120px', gap: 12, alignItems: 'end' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
-            Title
-            <input placeholder="Vintage camera" value={title} onChange={(e) => setTitle(e.target.value)} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
-            Starting Price
-            <input type="number" min={0} step={1} placeholder="100" value={startingPrice} onChange={(e) => setStartingPrice(Number(e.target.value))} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
-            Bid Increment
-            <input type="number" min={1} step={1} placeholder="5" value={bidIncrement} onChange={(e) => setBidIncrement(Number(e.target.value))} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
-            Go-live (local)
-            <input type="datetime-local" value={goLiveAt} onChange={(e) => setGoLiveAt(e.target.value)} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
-            Duration (mins)
-            <input type="number" min={1} step={1} placeholder="10" value={durationMinutes} onChange={(e) => setDurationMinutes(Number(e.target.value))} />
-          </label>
-          <button style={{ transition: 'transform .1s ease' }} onMouseDown={(e) => (e.currentTarget.style.transform = 'scale(0.98)')} onMouseUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}>Create</button>
-        </form>
-      </section>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
-        {items.map((a) => {
-          const { h, m, s, done } = useCountdown(a.endsAt)
-          return (
-            <article key={a.id} style={{ border: '1px solid #e6eaf0', borderRadius: 14, padding: 16, boxShadow: '0 12px 28px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: 12, background: '#fff', transition: 'transform .15s ease, box-shadow .2s ease' }} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 16px 32px rgba(0,0,0,0.08)'}} onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 12px 28px rgba(0,0,0,0.05)'}}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <h3 style={{ margin: 0 }}>{a.title}</h3>
-                <span style={{ fontSize: 12, opacity: 0.7 }}>{done ? 'Ended' : `Ends in ${h}h ${m}m ${s}s`}</span>
-              </div>
-              <div style={{ fontSize: 18 }}>
-                Current: <strong>${Number(a.currentPrice).toFixed(2)}</strong>
-              </div>
-              {a.bidIncrement ? (
-                <div style={{ fontSize: 12, opacity: 0.7 }}>Min increment: ${Number(a.bidIncrement).toFixed(2)}</div>
-              ) : null}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 1)}>Bid +1</button>
-                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 5)}>Bid +5</button>
-              </div>
-            </article>
-          )
-        })}
-      </div>
+      {page === 'live' ? (
+        <LiveAuctions authHeaders={authHeaders} items={items} placeBid={placeBid} />
+      ) : (
+        <AdminPage
+          authHeaders={authHeaders}
+          load={load}
+          loadAdminAuctions={loadAdminAuctions}
+          adminAuctions={adminAuctions}
+          notifications={notifications}
+          createAuction={createAuction}
+          title={title}
+          setTitle={setTitle}
+          startingPrice={startingPrice}
+          setStartingPrice={setStartingPrice}
+          bidIncrement={bidIncrement}
+          setBidIncrement={setBidIncrement}
+          goLiveAt={goLiveAt}
+          setGoLiveAt={setGoLiveAt}
+          durationMinutes={durationMinutes}
+          setDurationMinutes={setDurationMinutes}
+          adminStart={adminStart}
+          adminReset={adminReset}
+        />
+      )}
 
       <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -280,42 +334,10 @@ export function App() {
         )}
       </section>
 
-      <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
-        <h3 style={{ marginTop: 0 }}>Notifications</h3>
-        {notifications.length === 0 ? (
-          <div style={{ opacity: 0.7, fontSize: 14 }}>No notifications yet.</div>
-        ) : (
-          <ul>
-            {notifications.map((n) => (
-              <li key={n.id}>
-                <code style={{ fontSize: 12 }}>{n.type}</code> — {n.payload?.auctionId} {n.payload?.amount ? `($${Number(n.payload.amount).toFixed(2)})` : ''}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {me?.isAdmin && (
-        <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ margin: 0 }}>Admin</h3>
-            <button onClick={loadAdminAuctions}>Refresh</button>
-          </div>
-          {adminAuctions.length === 0 ? (
-            <div style={{ opacity: 0.7, fontSize: 14 }}>No auctions.</div>
-          ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {adminAuctions.map((a) => (
-                <div key={a.id} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <strong>{a.title}</strong>
-                  <span style={{ fontSize: 12, opacity: 0.7 }}>status: {a.status}</span>
-                  <button onClick={() => adminStart(a.id)}>Start</button>
-                  <button onClick={() => adminReset(a.id)}>Reset</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+      {me?.isAdmin && page === 'admin' && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+          <button onClick={loadAdminAuctions}>Refresh admin lists</button>
+        </div>
       )}
     </div>
   )
