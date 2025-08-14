@@ -72,7 +72,19 @@ app.get('/health/check', async (req, reply) => {
   }
   // Redis
   if (redisForBids) {
-    try { const pong = await redisForBids.ping(); res.services.redis = { ok: pong === 'PONG' } } catch (e: any) { res.ok = false; res.services.redis = { ok: false, error: e.message } }
+    try {
+      const key = `diag:ping:${nanoid(6)}`
+      // short TTL to avoid leftovers
+      await (redisForBids as any).set(key, '1', { ex: 5 })
+      const got = await (redisForBids as any).get(key)
+      const ok = got === '1'
+      const host = (() => { try { return new URL(process.env.UPSTASH_REDIS_REST_URL || '').host } catch { return undefined } })()
+      res.services.redis = { ok, urlHost: host }
+      if (!ok) res.ok = false
+    } catch (e: any) {
+      const host = (() => { try { return new URL(process.env.UPSTASH_REDIS_REST_URL || '').host } catch { return undefined } })()
+      res.ok = false; res.services.redis = { ok: false, error: e.message, urlHost: host }
+    }
   } else {
     res.services.redis = { ok: false, error: 'UPSTASH not configured' }
   }

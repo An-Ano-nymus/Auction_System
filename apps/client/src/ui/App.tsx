@@ -2,10 +2,26 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 // Robust URL helpers: avoid protocol-relative //api and trailing slashes
-const RAW_API_BASE = (import.meta.env.VITE_API_BASE ?? location.origin) as string
-const API_BASE = String(RAW_API_BASE).replace(/\/+$/, '')
-const api = (p: string) => `${API_BASE}${p}`
-const WS_URL = import.meta.env.VITE_WS_URL || (location.origin.replace('http', 'ws'))
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE ?? '/') as string
+const API_BASE = String(RAW_API_BASE).replace(/\/+$/, '') || '/'
+const api = (p: string) => `${API_BASE === '/' ? '' : API_BASE}${p}`
+
+function deriveWsUrl() {
+  const fromEnv = import.meta.env.VITE_WS_URL as string | undefined
+  if (fromEnv) return fromEnv
+  // If API_BASE is absolute (http[s]://), use that host; else decide by environment
+  try {
+    if (API_BASE && /^(http|https):\/\//.test(API_BASE)) {
+      const u = new URL(API_BASE)
+      return (u.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + u.host
+    }
+  } catch {}
+  // Dev: Vite on :5173 with proxy → connect WS to backend :8080
+  if (location.port === '5173') return 'ws://localhost:8080'
+  // Prod same-origin
+  return location.origin.replace('http', 'ws')
+}
+const WS_URL = deriveWsUrl()
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
@@ -44,15 +60,22 @@ export function App() {
   }, [session])
 
   async function load() {
-  const res = await fetch(api('/api/auctions'))
-    const data = await res.json()
-    setItems(data.items)
+    try {
+      const res = await fetch(api('/api/auctions'))
+      const data = await res.json()
+      setItems(Array.isArray(data.items) ? data.items : [])
+    } catch (e) {
+      // backend may still be starting; degrade gracefully
+      setItems([])
+    }
   }
 
   async function runDiagnostics() {
     try {
       const res = await fetch(api('/health/check'), {
-        headers: session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}
+        headers: session?.access_token
+          ? { 'Authorization': `Bearer ${session.access_token}` }
+          : { 'x-user-id': 'dev_admin' }
       })
       setDiag(await res.json())
     } catch (e) {
