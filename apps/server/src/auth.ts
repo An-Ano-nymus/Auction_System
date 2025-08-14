@@ -1,0 +1,24 @@
+import { createClient } from '@supabase/supabase-js'
+
+const SUPABASE_URL = process.env.SUPABASE_URL
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY
+const sb = SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null
+
+export type AuthUser = { id: string }
+
+export async function getAuthUser(req: any): Promise<AuthUser | null> {
+  // Prefer Supabase Auth via Authorization: Bearer <access_token>
+  if (sb) {
+    const auth = req.headers['authorization'] as string | undefined
+    if (!auth) return null
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : auth
+    if (!token) return null
+    const { data, error } = await sb.auth.getUser(token)
+    if (error || !data?.user) return null
+    return { id: data.user.id }
+  }
+  // Dev fallback
+  const id = req.headers['x-user-id']
+  if (typeof id === 'string' && id) return { id }
+  return null
+}

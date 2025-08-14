@@ -1,0 +1,18 @@
+{
+  "name": "auction-system-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm -w apps/server run dev\" \"npm -w apps/client run dev\"",
+    "lint": "npm -ws run lint",
+    "typecheck": "npm -ws run typecheck",
+    "build": "npm -ws run build",
+    "start": "npm -w apps/server start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

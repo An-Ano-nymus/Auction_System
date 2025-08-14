@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: auction-system
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      # App URLs (set PUBLIC_ORIGIN to your Render URL after first deploy)
+      - key: PUBLIC_ORIGIN
+        value: https://your-render-url.onrender.com
+      # Supabase (Auth + Postgres)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      # Upstash Redis (bids cache)
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      # SendGrid (emails)
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: SENDGRID_FROM_EMAIL
+        sync: false
+      # (Optional) Admin user for debug tasks
+      - key: ADMIN_USER_ID
+        sync: false

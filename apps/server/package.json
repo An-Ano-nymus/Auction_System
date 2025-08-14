@@ -1,0 +1,40 @@
+{
+  "name": "auction-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file=.env dist/index.js",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^8.4.2",
+    "@fastify/rate-limit": "^8.0.0",
+    "@fastify/sensible": "^5.6.0",
+    "@fastify/static": "^7.0.3",
+    "@sendgrid/mail": "^8.1.4",
+    "@supabase/supabase-js": "^2.45.4",
+    "@upstash/redis": "^1.33.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.29.1",
+    "fastify-plugin": "^4.5.1",
+    "jsonwebtoken": "^9.0.2",
+    "nanoid": "^5.0.7",
+    "pg": "^8.12.0",
+    "sequelize": "^6.37.7",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^22.5.0",
+    "@types/sequelize": "*",
+    "@types/ws": "^8.5.12",
+    "eslint": "^9.9.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4"
+  }
+}
