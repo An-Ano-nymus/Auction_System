@@ -22,13 +22,15 @@ services:
         value: https://auction-system-odr4.onrender.com
       # Supabase (Auth + Postgres)
       - key: SUPABASE_URL
-        sync: false
+        value: https://yxnlxylzwqafqtdfaccq.supabase.co
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_KEY
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: USE_SUPABASE_REST
+        value: "true"
       # Upstash Redis (bids cache)
       - key: UPSTASH_REDIS_REST_URL
         sync: false

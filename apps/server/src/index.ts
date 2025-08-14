@@ -17,11 +17,13 @@ import { join, dirname } from 'path';
 import { sendEmail, buildInvoiceHtml } from './email.js';
 import { getUserEmail, getUserPhone } from './users.js';
 import { sendSms } from './sms.js';
+import * as supaRepo from './supaRepo.js'
 
 // Basic runtime config
 const PORT = Number(process.env.PORT || 8080);
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || 'http://localhost:5173';
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID;
+const USE_SUPABASE_REST = process.env.USE_SUPABASE_REST === 'true'
 
 // store abstraction removed from runtime; Sequelize is the primary store
 
@@ -66,8 +68,11 @@ app.get('/health/check', async (req, reply) => {
   const devUser = (!u && typeof (req.headers['x-user-id']) === 'string') ? { id: String(req.headers['x-user-id']) } : null
   if (!u && !devUser) return reply.unauthorized('Auth required')
   const res: any = { ok: true, services: {} }
-  // DB
-  if (sequelize) {
+  // DB / Supabase
+  if (USE_SUPABASE_REST) {
+    res.services.db = { ok: !!supaRepo.supa }
+    if (!supaRepo.supa) res.ok = false
+  } else if (sequelize) {
     try { await sequelize.authenticate(); res.services.db = { ok: true } } catch (e: any) { res.ok = false; res.services.db = { ok: false, error: e.message } }
   } else {
     res.ok = false; res.services.db = { ok: false, error: 'DATABASE_URL missing' }
@@ -81,11 +86,10 @@ app.get('/health/check', async (req, reply) => {
       const got = await (redisForBids as any).get(key)
       const ok = got === '1'
       const host = (() => { try { return new URL(process.env.UPSTASH_REDIS_REST_URL || '').host } catch { return undefined } })()
-      res.services.redis = { ok, urlHost: host }
-      if (!ok) res.ok = false
+  res.services.redis = { ok, urlHost: host }
     } catch (e: any) {
       const host = (() => { try { return new URL(process.env.UPSTASH_REDIS_REST_URL || '').host } catch { return undefined } })()
-      res.ok = false; res.services.redis = { ok: false, error: e.message, urlHost: host }
+  res.services.redis = { ok: false, error: e.message, urlHost: host }
     }
   } else {
     res.services.redis = { ok: false, error: 'UPSTASH not configured' }
@@ -131,8 +135,10 @@ app.post('/api/auctions', async (req, reply) => {
 
   const parsed = CreateAuctionSchema.safeParse(req.body);
   if (!parsed.success) return reply.badRequest(parsed.error.message);
-
-  // Persist using Sequelize (Supabase Postgres)
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.createAuction(parsed.data, userId)
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.internalServerError('DB not configured');
   const now = new Date(parsed.data.goLiveAt)
   const ends = new Date(now.getTime() + parsed.data.durationMinutes * 60_000)
@@ -157,13 +163,16 @@ app.post('/api/auctions', async (req, reply) => {
     endsAt: row.endsAt.toISOString(),
     createdAt: (row as any).createdAt?.toISOString?.() || new Date().toISOString()
   }
-  // Seed Redis cache for fast access
   if (redisForBids) await redisForBids.hset(`auction:${row.id}`, { current: auction.currentPrice, step: parsed.data.bidIncrement, endsAt: auction.endsAt })
   return reply.code(201).send(auction);
 });
 
 // List auctions (basic)
 app.get('/api/auctions', async () => {
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.listAuctions()
+    return out.body
+  }
   if (!sequelize) return { items: [] };
   const rows = await AuctionModel.findAll({ order: [['createdAt', 'DESC']] })
   const list = rows.map((r: any) => ({
@@ -182,6 +191,10 @@ app.get('/api/auctions', async () => {
 
 // Single auction and bids
 app.get('/api/auctions/:id', async (req, reply) => {
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.getAuction((req.params as any).id)
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.notFound()
   const { id } = req.params as { id: string }
   const r = await AuctionModel.findByPk(id)
@@ -201,6 +214,10 @@ app.get('/api/auctions/:id', async (req, reply) => {
 })
 
 app.get('/api/auctions/:id/bids', async (req, reply) => {
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.listBids((req.params as any).id)
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.send({ items: [] })
   const { id } = req.params as { id: string }
   const rows = await BidModel.findAll({ where: { auctionId: id }, order: [['createdAt','DESC']] })
@@ -290,6 +307,13 @@ app.post('/api/auctions/:id/bids', async (req, reply) => {
   const parsed = BidSchema.safeParse(req.body);
   if (!parsed.success) return reply.badRequest(parsed.error.message);
 
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.placeBid(id, userId, parsed.data.amount)
+    if (out.status === 201) {
+      broadcast(JSON.stringify({ type: 'bid:accepted', auctionId: id, amount: parsed.data.amount, userId, at: new Date().toISOString() }));
+    }
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.internalServerError('DB not configured');
   // Load auction row first
   const row = await AuctionModel.findByPk(id)
@@ -342,6 +366,10 @@ app.post('/api/auctions/:id/bids', async (req, reply) => {
 app.post('/api/auctions/:id/end', async (req, reply) => {
   const userId = await getUserId(req);
   if (!userId) return reply.unauthorized('Missing user');
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.endAuction((req.params as any).id, userId)
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.internalServerError('DB not configured');
   const { id } = req.params as { id: string }
   const a = await AuctionModel.findByPk(id)
@@ -359,6 +387,13 @@ const DecisionSchema = z.object({ action: z.enum(['accept','reject','counter']),
 app.post('/api/auctions/:id/decision', async (req, reply) => {
   const userId = await getUserId(req);
   if (!userId) return reply.unauthorized('Missing user');
+  if (USE_SUPABASE_REST) {
+    const { id } = req.params as { id: string }
+    const parsed = DecisionSchema.safeParse(req.body)
+    if (!parsed.success) return reply.badRequest(parsed.error.message)
+    const out = await supaRepo.decision(id, userId, parsed.data.action, parsed.data.amount)
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.internalServerError('DB not configured');
   const { id } = req.params as { id: string }
   const parsed = DecisionSchema.safeParse(req.body)
@@ -406,6 +441,10 @@ const CounterReplySchema = z.object({ accept: z.boolean() })
 app.post('/api/counter/:id/reply', async (req, reply) => {
   const userId = await getUserId(req);
   if (!userId) return reply.unauthorized('Missing user');
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.counterReply((req.params as any).id, userId, !!(req.body as any).accept)
+    return reply.code(out.status).send(out.body)
+  }
   if (!sequelize) return reply.internalServerError('DB not configured');
   const { id } = req.params as { id: string }
   const parsed = CounterReplySchema.safeParse(req.body)
