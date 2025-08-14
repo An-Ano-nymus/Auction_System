@@ -5,22 +5,21 @@ import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { WebSocketServer } from 'ws';
 import { z } from 'zod';
-import { createStore } from './store';
-import { getAuthUser } from './auth';
-import { initModels, sequelize, AuctionModel, BidModel, CounterOfferModel, NotificationModel } from './sequelize';
+import { getAuthUser } from './auth.js';
+import { initModels, sequelize, AuctionModel, BidModel, CounterOfferModel, NotificationModel } from './sequelize.js';
 import { Redis } from '@upstash/redis';
 import { nanoid } from 'nanoid';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'url';
 import { join, dirname } from 'path';
-import { sendEmail, buildInvoiceHtml } from './email';
-import { getUserEmail } from './users';
+import { sendEmail, buildInvoiceHtml } from './email.js';
+import { getUserEmail } from './users.js';
 
 // Basic runtime config
 const PORT = Number(process.env.PORT || 8080);
 const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || 'http://localhost:5173';
 
-const store = createStore();
+// store abstraction removed from runtime; Sequelize is the primary store
 
 // Fastify app
 const app = Fastify({ logger: true });
