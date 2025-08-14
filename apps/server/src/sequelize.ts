@@ -6,7 +6,13 @@ if (!DATABASE_URL) {
 }
 
 export const sequelize = DATABASE_URL
-  ? new Sequelize(DATABASE_URL, { dialect: 'postgres', logging: false })
+  ? new Sequelize(DATABASE_URL, {
+      dialect: 'postgres',
+      logging: false,
+      dialectOptions: {
+        ssl: { require: true, rejectUnauthorized: false }
+      }
+    })
   : null
 
 export let AuctionModel: any

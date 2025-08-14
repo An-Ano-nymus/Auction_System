@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { setDefaultResultOrder } from 'node:dns';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
@@ -23,6 +24,9 @@ const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || 'http://localhost:5173';
 
 // Fastify app
 const app = Fastify({ logger: true });
+
+// Prefer IPv4 first to avoid IPv6 routing issues in some hosts
+try { setDefaultResultOrder('ipv4first') } catch {}
 
 await app.register(cors, { origin: true, credentials: true });
 await app.register(sensible);
