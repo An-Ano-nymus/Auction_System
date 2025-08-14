@@ -11,6 +11,7 @@ import { initModels, sequelize, AuctionModel, BidModel, CounterOfferModel, Notif
 import { Redis } from '@upstash/redis';
 import { nanoid } from 'nanoid';
 import fastifyStatic from '@fastify/static';
+import fs from 'node:fs';
 import { fileURLToPath } from 'url';
 import { join, dirname } from 'path';
 import { sendEmail, buildInvoiceHtml } from './email.js';
@@ -37,7 +38,12 @@ try {
   const __filename = fileURLToPath(import.meta.url)
   const __dirname = dirname(__filename)
   const publicDir = join(__dirname, '../../client-dist')
-  await app.register(fastifyStatic, { root: publicDir })
+  if (fs.existsSync(publicDir)) {
+    await app.register(fastifyStatic, { root: publicDir })
+    app.log.info({ publicDir }, 'Static UI enabled')
+  } else {
+    app.log.info({ publicDir }, 'Static UI skipped (folder missing)')
+  }
 } catch {}
 
 // Init Sequelize models (if DATABASE_URL configured)
@@ -53,8 +59,10 @@ app.get('/health', async () => ({ ok: true }));
 
 // Admin diagnostics: checks DB/Redis/env and optionally attempts connections.
 app.get('/health/check', async (req, reply) => {
-  const user = await getUserId(req)
-  if (!user) return reply.unauthorized('Auth required')
+  const u = await getUserId(req)
+  // dev fallback: allow if x-user-id header is present
+  const devUser = (!u && typeof (req.headers['x-user-id']) === 'string') ? { id: String(req.headers['x-user-id']) } : null
+  if (!u && !devUser) return reply.unauthorized('Auth required')
   const res: any = { ok: true, services: {} }
   // DB
   if (sequelize) {
