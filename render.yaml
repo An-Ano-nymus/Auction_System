@@ -32,6 +32,8 @@ services:
       - key: USE_SUPABASE_REST
         value: "true"
       # Upstash Redis (bids cache)
+      - key: REDIS_URL
+        sync: false
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN

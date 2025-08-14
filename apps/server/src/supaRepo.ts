@@ -18,6 +18,7 @@ export async function createAuction(body: any, sellerId: string): Promise<HttpRe
   if (!supa) return { status: 500, body: 'Supabase not configured' }
   const now = new Date(body.goLiveAt)
   const ends = new Date(now.getTime() + body.durationMinutes * 60_000)
+  const createdAt = new Date()
   const row = {
     id: nanoid(12),
     sellerId,
@@ -28,7 +29,9 @@ export async function createAuction(body: any, sellerId: string): Promise<HttpRe
     goLiveAt: now.toISOString(),
     endsAt: ends.toISOString(),
     currentPrice: body.startingPrice,
-    status: new Date() >= now ? 'live' : 'scheduled'
+    status: new Date() >= now ? 'live' : 'scheduled',
+    createdAt: createdAt.toISOString(),
+    updatedAt: createdAt.toISOString(),
   }
   const { data, error } = await supa.from('auctions').insert(row).select().single()
   if (error) return { status: 500, body: error.message }

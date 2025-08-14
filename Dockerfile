@@ -6,7 +6,7 @@ COPY package.json package-lock.json* .npmrc* ./
 COPY apps/server/package.json apps/server/package.json
 COPY apps/client/package.json apps/client/package.json
 COPY packages/shared/package.json packages/shared/package.json
-RUN npm install
+RUN npm install && npm -w apps/server install redis@^4
 # Copy sources
 COPY . .
 # Build all workspaces

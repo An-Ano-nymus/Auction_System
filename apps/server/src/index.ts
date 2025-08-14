@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws';
 import { z } from 'zod';
 import { getAuthUser } from './auth.js';
 import { initModels, sequelize, AuctionModel, BidModel, CounterOfferModel, NotificationModel } from './sequelize.js';
-import { Redis } from '@upstash/redis';
+import { initRedis, redisInfo } from './redisClient.js';
 import { nanoid } from 'nanoid';
 import fastifyStatic from '@fastify/static';
 import fs from 'node:fs';
@@ -53,10 +53,8 @@ try {
 // Init Sequelize models (if DATABASE_URL configured)
 await initModels().catch((e) => app.log.warn(e, 'Sequelize init failed'));
 
-// Redis for highest-bid cache
-const redisForBids = (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
-  ? new Redis({ url: process.env.UPSTASH_REDIS_REST_URL!, token: process.env.UPSTASH_REDIS_REST_TOKEN! })
-  : null as any;
+// Redis for highest-bid cache (node-redis if REDIS_URL; else Upstash REST fallback)
+const redisForBids = await initRedis();
 
 // Health
 app.get('/health', async () => ({ ok: true }));
@@ -85,11 +83,9 @@ app.get('/health/check', async (req, reply) => {
       await (redisForBids as any).set(key, '1', { ex: 5 })
       const got = await (redisForBids as any).get(key)
       const ok = got === '1'
-      const host = (() => { try { return new URL(process.env.UPSTASH_REDIS_REST_URL || '').host } catch { return undefined } })()
-  res.services.redis = { ok, urlHost: host }
+      res.services.redis = { ok, ...redisInfo() }
     } catch (e: any) {
-      const host = (() => { try { return new URL(process.env.UPSTASH_REDIS_REST_URL || '').host } catch { return undefined } })()
-  res.services.redis = { ok: false, error: e.message, urlHost: host }
+      res.services.redis = { ok: false, error: e.message, ...redisInfo() }
     }
   } else {
     res.services.redis = { ok: false, error: 'UPSTASH not configured' }
@@ -310,7 +306,9 @@ app.post('/api/auctions/:id/bids', async (req, reply) => {
   if (USE_SUPABASE_REST) {
     const out = await supaRepo.placeBid(id, userId, parsed.data.amount)
     if (out.status === 201) {
-      broadcast(JSON.stringify({ type: 'bid:accepted', auctionId: id, amount: parsed.data.amount, userId, at: new Date().toISOString() }));
+  const msg = JSON.stringify({ type: 'bid:accepted', auctionId: id, amount: parsed.data.amount, userId, at: new Date().toISOString() })
+  broadcast(msg);
+  try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
     }
     return reply.code(out.status).send(out.body)
   }
@@ -359,6 +357,8 @@ app.post('/api/auctions/:id/bids', async (req, reply) => {
     at: new Date().toISOString()
   };
   broadcast(JSON.stringify(payload));
+  // cross-instance broadcast via Redis pub/sub if available
+  try { await (redisForBids as any)?.publish?.('ws:broadcast', JSON.stringify(payload)) } catch {}
   return reply.code(201).send({ ok: true });
 });
 
@@ -378,6 +378,7 @@ app.post('/api/auctions/:id/end', async (req, reply) => {
   a.status = 'ended' as any
   await a.save()
   broadcast(JSON.stringify({ type: 'auction:ended', auctionId: id, final: Number(a.currentPrice) }))
+  try { await (redisForBids as any)?.publish?.('ws:broadcast', JSON.stringify({ type: 'auction:ended', auctionId: id, final: Number(a.currentPrice) })) } catch {}
   // Notify seller with summary
   await NotificationModel.create({ id: nanoid(12), userId, type: 'auction:ended', payload: { auctionId: id, final: Number(a.currentPrice) }, read: false } as any)
   return { ok: true }
@@ -433,6 +434,7 @@ app.post('/api/auctions/:id/decision', async (req, reply) => {
   if (!parsed.data.amount) return reply.badRequest('Counter amount required')
   const c = await CounterOfferModel.create({ id: nanoid(12), auctionId: id, sellerId: userId, buyerId: topBid.bidderId, amount: parsed.data.amount } as any)
   broadcast(JSON.stringify({ type: 'offer:counter', auctionId: id, amount: parsed.data.amount, buyerId: topBid.bidderId }))
+  try { await (redisForBids as any)?.publish?.('ws:broadcast', JSON.stringify({ type: 'offer:counter', auctionId: id, amount: parsed.data.amount, buyerId: topBid.bidderId })) } catch {}
   await NotificationModel.create({ id: nanoid(12), userId: topBid.bidderId, type: 'offer:counter', payload: { auctionId: id, amount: parsed.data.amount }, read: false } as any)
   return { ok: true }
 })
@@ -460,7 +462,8 @@ app.post('/api/counter/:id/reply', async (req, reply) => {
     a.currentPrice = offer.amount as any
     a.status = 'closed' as any
     await a.save()
-    broadcast(JSON.stringify({ type: 'offer:accepted', auctionId: a.id, amount: Number(offer.amount) }))
+  broadcast(JSON.stringify({ type: 'offer:accepted', auctionId: a.id, amount: Number(offer.amount) }))
+  try { await (redisForBids as any)?.publish?.('ws:broadcast', JSON.stringify({ type: 'offer:accepted', auctionId: a.id, amount: Number(offer.amount) })) } catch {}
   // Email buyer & seller
   const buyerEmail = await getUserEmail(offer.buyerId)
   const sellerEmail = await getUserEmail(offer.sellerId)
@@ -476,7 +479,8 @@ app.post('/api/counter/:id/reply', async (req, reply) => {
     await offer.save()
     a.status = 'closed' as any
     await a.save()
-    broadcast(JSON.stringify({ type: 'offer:rejected', auctionId: a.id }))
+  broadcast(JSON.stringify({ type: 'offer:rejected', auctionId: a.id }))
+  try { await (redisForBids as any)?.publish?.('ws:broadcast', JSON.stringify({ type: 'offer:rejected', auctionId: a.id })) } catch {}
   }
   return { ok: true }
 })
@@ -496,6 +500,13 @@ wss = new WebSocketServer({ server: app.server });
 wss.on('connection', (socket) => {
   socket.send(JSON.stringify({ type: 'hello', at: new Date().toISOString() }));
 });
+
+// Subscribe to cross-instance WS broadcast if Redis supports it
+try {
+  await (redisForBids as any)?.subscribe?.('ws:broadcast', (message: string) => {
+    broadcast(message)
+  })
+} catch {}
 
 // SPA fallback: serve index.html for unmatched GET routes (except API/health)
 try {
