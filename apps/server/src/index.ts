@@ -457,6 +457,19 @@ wss = new WebSocketServer({ server: app.server });
 wss.on('connection', (socket) => {
   socket.send(JSON.stringify({ type: 'hello', at: new Date().toISOString() }));
 });
+
+// SPA fallback: serve index.html for unmatched GET routes (except API/health)
+try {
+  app.get('/*', async (req, reply) => {
+    const url = (req as any).url as string
+    if (url.startsWith('/api') || url.startsWith('/health') || url.startsWith('/ws')) return reply.notFound()
+    // fastify-static decorates reply with sendFile
+    if (typeof (reply as any).sendFile === 'function') {
+      return (reply as any).sendFile('index.html')
+    }
+    return reply.notFound()
+  })
+} catch {}
 app.log.info(`Server listening on http://localhost:${PORT}`);
 
 // Background: end auctions whose time passed

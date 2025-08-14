@@ -16,6 +16,8 @@ RUN mkdir -p /app/apps/client-dist && cp -r apps/client/dist/* /app/apps/client-
 
 FROM node:20-alpine AS runner
 ENV NODE_ENV=production
+ENV NODE_OPTIONS=--dns-result-order=ipv4first
+ENV PGSSLMODE=require
 WORKDIR /app
 # Copy built artifacts and node_modules from builder for simplicity
 COPY --from=builder /app/node_modules /app/node_modules

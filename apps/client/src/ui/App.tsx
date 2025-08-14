@@ -58,7 +58,8 @@ export function App() {
   const authHeaders = useMemo(() => {
     const headers: Record<string, string> = { 'content-type': 'application/json' }
     if (session?.access_token) headers['authorization'] = `Bearer ${session.access_token}`
-    else headers['x-user-id'] = 'dev_' + (session?.user?.id || 'guest') // dev fallback
+    // Always include x-user-id as a fallback for non-auth flows
+    headers['x-user-id'] = 'dev_' + (session?.user?.id || 'guest')
     return headers
   }, [session])
 

@@ -18,11 +18,9 @@ export async function getAuthUser(req: any): Promise<AuthUser | null> {
       if (error || !data?.user) return null
       return { id: data.user.id }
     }
-    // Optional dev fallback when explicitly allowed
-    if (allowDevHeader) {
-      const id = req.headers['x-user-id']
-      if (typeof id === 'string' && id) return { id }
-    }
+  // Fallback: honor x-user-id header if present (useful for non-auth test clients)
+  const xid = req.headers['x-user-id']
+  if (typeof xid === 'string' && xid) return { id: xid }
     return null
   }
   // No Supabase configured -> dev fallback
