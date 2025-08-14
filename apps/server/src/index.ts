@@ -51,6 +51,30 @@ const redisForBids = (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_
 // Health
 app.get('/health', async () => ({ ok: true }));
 
+// Admin diagnostics: checks DB/Redis/env and optionally attempts connections.
+app.get('/health/check', async (req, reply) => {
+  const user = await getUserId(req)
+  if (!user) return reply.unauthorized('Auth required')
+  const res: any = { ok: true, services: {} }
+  // DB
+  if (sequelize) {
+    try { await sequelize.authenticate(); res.services.db = { ok: true } } catch (e: any) { res.ok = false; res.services.db = { ok: false, error: e.message } }
+  } else {
+    res.ok = false; res.services.db = { ok: false, error: 'DATABASE_URL missing' }
+  }
+  // Redis
+  if (redisForBids) {
+    try { const pong = await redisForBids.ping(); res.services.redis = { ok: pong === 'PONG' } } catch (e: any) { res.ok = false; res.services.redis = { ok: false, error: e.message } }
+  } else {
+    res.services.redis = { ok: false, error: 'UPSTASH not configured' }
+  }
+  // SendGrid presence
+  res.services.sendgrid = { ok: !!process.env.SENDGRID_API_KEY && !!process.env.SENDGRID_FROM_EMAIL }
+  // Origin
+  res.publicOrigin = PUBLIC_ORIGIN
+  return res
+})
+
 // Domain models
 type Auction = {
   id: string;
@@ -183,26 +207,34 @@ app.post('/api/auctions/:id/bids', async (req, reply) => {
   if (!parsed.success) return reply.badRequest(parsed.error.message);
 
   if (!sequelize) return reply.internalServerError('DB not configured');
-  // Fast check via Redis
-  if (!redisForBids) return reply.internalServerError('Redis not configured');
-  const meta = await redisForBids.hgetall(`auction:${id}`) as Record<string, string> | null
-  const nowIso = new Date().toISOString()
-  if (!meta || nowIso > (meta as any).endsAt) return reply.conflict('Auction ended')
-  const current = Number((meta as any).current ?? 0)
-  const step = Number((meta as any).step ?? 1)
-  if (parsed.data.amount < current + step) return reply.conflict('Bid too low')
-
-  // Persist bid
+  // Load auction row first
   const row = await AuctionModel.findByPk(id)
   if (!row) return reply.notFound('Auction not found')
-  if (new Date() > new Date(row.endsAt)) return reply.conflict('Auction ended')
-  if (parsed.data.amount < Number(row.currentPrice) + Number(row.bidIncrement)) return reply.conflict('Bid too low')
+
+  let current = Number(row.currentPrice)
+  let step = Number(row.bidIncrement)
+  let endsAtIso = new Date(row.endsAt).toISOString()
+
+  if (redisForBids) {
+    const meta = await redisForBids.hgetall(`auction:${id}`) as Record<string, string> | null
+    if (meta && (meta as any).current) current = Number((meta as any).current)
+    if (meta && (meta as any).step) step = Number((meta as any).step)
+    if (meta && (meta as any).endsAt) endsAtIso = String((meta as any).endsAt)
+    else {
+      // seed if cold
+      await redisForBids.hset(`auction:${id}`, { current, step, endsAt: endsAtIso })
+    }
+  }
+
+  const nowIso = new Date().toISOString()
+  if (nowIso > endsAtIso || new Date() > new Date(row.endsAt)) return reply.conflict('Auction ended')
+  if (parsed.data.amount < current + step) return reply.conflict('Bid too low')
 
   const prev = Number(row.currentPrice)
   row.currentPrice = parsed.data.amount as any
   await row.save()
   await BidModel.create({ id: nanoid(12), auctionId: id, bidderId: userId, amount: parsed.data.amount } as any)
-  await redisForBids.hset(`auction:${id}`, { current: parsed.data.amount })
+  if (redisForBids) await redisForBids.hset(`auction:${id}`, { current: parsed.data.amount })
 
   // Notify: outbid previous highest bidder (optional: fetch from last bid)
   const lastBid = await BidModel.findOne({ where: { auctionId: id }, order: [['createdAt', 'DESC']] })

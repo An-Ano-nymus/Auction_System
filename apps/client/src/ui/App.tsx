@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/'
+// Robust URL helpers: avoid protocol-relative //api and trailing slashes
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE ?? location.origin) as string
+const API_BASE = String(RAW_API_BASE).replace(/\/+$/, '')
+const api = (p: string) => `${API_BASE}${p}`
 const WS_URL = import.meta.env.VITE_WS_URL || (location.origin.replace('http', 'ws'))
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -41,14 +44,14 @@ export function App() {
   }, [session])
 
   async function load() {
-    const res = await fetch(`${API_BASE}/api/auctions`)
+  const res = await fetch(api('/api/auctions'))
     const data = await res.json()
     setItems(data.items)
   }
 
   async function runDiagnostics() {
     try {
-      const res = await fetch(`${API_BASE}/health/check${session?.access_token ? '' : ''}`, {
+      const res = await fetch(api('/health/check'), {
         headers: session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}
       })
       setDiag(await res.json())
@@ -97,7 +100,7 @@ export function App() {
 
   async function createAuction(e: React.FormEvent) {
     e.preventDefault()
-    const res = await fetch(`${API_BASE}/api/auctions`, {
+  const res = await fetch(api('/api/auctions'), {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({ title, startingPrice, durationMinutes, bidIncrement, goLiveAt: new Date(goLiveAt).toISOString() })
@@ -113,7 +116,7 @@ export function App() {
   }
 
   async function placeBid(id: string, amount: number) {
-    const res = await fetch(`${API_BASE}/api/auctions/${id}/bids`, {
+    const res = await fetch(api(`/api/auctions/${id}/bids`), {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({ amount })
