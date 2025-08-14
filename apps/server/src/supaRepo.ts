@@ -45,6 +45,13 @@ export async function listAuctions(): Promise<HttpResult> {
   return { status: 200, body: { items: data } }
 }
 
+export async function listAuctionsBySeller(sellerId: string): Promise<HttpResult> {
+  if (!supa) return { status: 200, body: { items: [] } }
+  const { data, error } = await supa.from('auctions').select('*').eq('sellerId', sellerId).order('createdAt', { ascending: false })
+  if (error) return { status: 500, body: error.message }
+  return { status: 200, body: { items: data } }
+}
+
 export async function getAuction(id: string): Promise<HttpResult> {
   if (!supa) return { status: 404, body: 'Not found' }
   const { data, error } = await supa.from('auctions').select('*').eq('id', id).single()

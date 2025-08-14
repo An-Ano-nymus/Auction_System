@@ -110,7 +110,7 @@ type Auction = {
 
 // Validate create auction payload
 const CreateAuctionSchema = z.object({
-  title: z.string().min(3).max(120),
+  title: z.string().trim().min(1).max(120),
   description: z.string().max(2000).optional(),
   startingPrice: z.number().nonnegative(),
   bidIncrement: z.number().positive(),
@@ -254,6 +254,19 @@ app.get('/admin/auctions', async (req, reply) => {
   return { items: rows.map((r:any)=>({ id:r.id, title:r.title, status:r.status, currentPrice:Number(r.currentPrice), bidIncrement:Number(r.bidIncrement), goLiveAt:new Date(r.goLiveAt).toISOString(), endsAt:new Date(r.endsAt).toISOString() })) }
 })
 
+// Host-owned auctions (seller view)
+app.get('/host/auctions', async (req, reply) => {
+  const user = await getUserId(req)
+  if (!user) return reply.unauthorized('Missing user')
+  if (USE_SUPABASE_REST) {
+    const out = await supaRepo.listAuctionsBySeller(user)
+    return reply.code(out.status).send(out.body)
+  }
+  if (!sequelize) return reply.send({ items: [] })
+  const rows = await AuctionModel.findAll({ where: { sellerId: user }, order: [['createdAt','DESC']], limit: 200 })
+  return { items: rows.map((r:any)=>({ id:r.id, title:r.title, status:r.status, currentPrice:Number(r.currentPrice), bidIncrement:Number(r.bidIncrement), goLiveAt:new Date(r.goLiveAt).toISOString(), endsAt:new Date(r.endsAt).toISOString() })) }
+})
+
 const AdminAdjustSchema = z.object({ minutes: z.number().int().min(1).max(7*24*60).optional() })
 app.post('/admin/auctions/:id/start', async (req, reply) => {
   const user = await getUserId(req)
@@ -264,6 +277,9 @@ app.post('/admin/auctions/:id/start', async (req, reply) => {
   if (!parsed.success) return reply.badRequest(parsed.error.message)
   if (USE_SUPABASE_REST) {
     const out = await supaRepo.startAuction(id, parsed.data.minutes ?? 10)
+    // in Supabase mode, ensure current user is seller; otherwise forbid
+    const a = await supaRepo.getAuction(id)
+    if (a.status === 200 && (a.body?.sellerId !== user)) return reply.forbidden('Not seller')
     if (out.status === 200) {
       const msg = JSON.stringify({ type:'auction:started', auctionId: id })
       broadcast(msg)
@@ -295,6 +311,8 @@ app.post('/admin/auctions/:id/reset', async (req, reply) => {
   if (!parsed.success) return reply.badRequest(parsed.error.message)
   if (USE_SUPABASE_REST) {
     const out = await supaRepo.resetAuction(id, parsed.data.minutes ?? 10)
+    const a = await supaRepo.getAuction(id)
+    if (a.status === 200 && (a.body?.sellerId !== user)) return reply.forbidden('Not seller')
     if (out.status === 200) {
       const msg = JSON.stringify({ type:'auction:reset', auctionId: id })
       broadcast(msg)

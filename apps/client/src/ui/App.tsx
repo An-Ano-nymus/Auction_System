@@ -62,9 +62,13 @@ function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; item
               </div>
               <div style={{ fontSize: 18 }}>Current: <strong>${Number(a.currentPrice).toFixed(2)}</strong></div>
               {a.bidIncrement ? (<div style={{ fontSize: 12, opacity: 0.7 }}>Min increment: ${Number(a.bidIncrement).toFixed(2)}</div>) : null}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 1)}>Bid +1</button>
-                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 5)}>Bid +5</button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 1)}>+1</button>
+                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 5)}>+5</button>
+                <form onSubmit={(e) => { e.preventDefault(); const amt = Number((e.currentTarget as any).amount.value); if (!isNaN(amt)) placeBid(a.id, amt) }} style={{ display: 'flex', gap: 6 }}>
+                  <input name="amount" type="number" min={0} step={1} placeholder={String(Number(a.currentPrice) + Number(a.bidIncrement || 1))} style={{ width: 100 }} />
+                  <button disabled={done} type="submit">Bid</button>
+                </form>
               </div>
             </article>
           )
@@ -167,6 +171,11 @@ export function App() {
 
   async function loadAdminAuctions() {
     try {
+      // Prefer host-owned list if authenticated; fallback to global admin list
+      const hostRes = await fetch(api('/host/auctions'), { headers: authHeaders })
+      if (hostRes.ok) {
+        const data = await hostRes.json(); setAdminAuctions(data.items || []); return
+      }
       const res = await fetch(api('/admin/auctions'), { headers: authHeaders })
       if (res.ok) {
         const data = await res.json()
