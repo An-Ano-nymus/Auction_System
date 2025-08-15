@@ -86,7 +86,7 @@ export async function listBids(id: string, filters?: { offset?: number; limit?: 
 
 export async function placeBid(auctionId: string, userId: string, amount: number): Promise<HttpResult> {
   if (!supa) return { status: 500, body: 'Supabase not configured' }
-  const { data: a, error: e1 } = await supa.from('auctions').select('id,currentPrice,bidIncrement,endsAt,status').eq('id', auctionId).single()
+  const { data: a, error: e1 } = await supa.from('auctions').select('id,currentPrice,bidIncrement,endsAt,status,sellerId,title').eq('id', auctionId).single()
   if (e1 || !a) return { status: 404, body: 'Auction not found' }
   const nowIso = new Date().toISOString()
   if (a.status === 'closed' || nowIso > a.endsAt) return { status: 409, body: 'Auction ended' }
@@ -103,11 +103,31 @@ export async function placeBid(auctionId: string, userId: string, amount: number
   if (!updated || updated.length === 0) return { status: 409, body: 'Bid too low or auction ended' }
   const { error: e3 } = await supa.from('bids').insert({ id: nanoid(12), auctionId, bidderId: userId, amount, createdAt: new Date().toISOString() })
   if (e3) return { status: 500, body: e3.message }
-  const { data: last } = await supa.from('bids').select('bidderId').eq('auctionId', auctionId).order('createdAt', { ascending: false }).limit(1)
-  if (last && last[0] && last[0].bidderId !== userId) {
-    await supa.from('notifications').insert({ id: nanoid(12), userId: last[0].bidderId, type: 'bid:outbid', payload: { auctionId, amount }, read: false })
+  const notify: Array<{ userId: string; type: string; payload: any }> = []
+  // Notify seller of new bid
+  if (a.sellerId) {
+    const n1 = { id: nanoid(12), userId: a.sellerId, type: 'bid:new', payload: { auctionId, amount, bidderId: userId, title: a.title }, read: false }
+    await supa.from('notifications').insert(n1)
+    notify.push({ userId: a.sellerId, type: n1.type, payload: n1.payload })
   }
-  return { status: 201, body: { ok: true } }
+  // Notify previous highest bidder of outbid
+  const { data: top2 } = await supa.from('bids').select('bidderId,amount').eq('auctionId', auctionId).order('amount', { ascending: false }).limit(2)
+  const prev = (top2 || []).find((b: any) => b.bidderId !== userId)
+  if (prev && prev.bidderId) {
+    const n2 = { id: nanoid(12), userId: prev.bidderId, type: 'bid:outbid', payload: { auctionId, amount, title: a.title }, read: false }
+    await supa.from('notifications').insert(n2)
+    notify.push({ userId: prev.bidderId, type: n2.type, payload: n2.payload })
+  }
+  // Notify all prior bidders of update (excluding current)
+  const { data: allBidders } = await supa.from('bids').select('bidderId').eq('auctionId', auctionId).neq('bidderId', userId)
+  if (allBidders && allBidders.length) {
+    const unique = Array.from(new Set(allBidders.map((b: any) => b.bidderId))) as string[]
+    const recips = unique.slice(0, 100)
+    const rows = recips.map((uid) => ({ id: nanoid(12), userId: uid, type: 'bid:update', payload: { auctionId, amount, title: a.title }, read: false }))
+    if (rows.length) await supa.from('notifications').insert(rows)
+    for (const uid of recips) notify.push({ userId: uid, type: 'bid:update', payload: { auctionId, amount, title: a.title } })
+  }
+  return { status: 201, body: { ok: true, notify } }
 }
 
 export async function endAuction(auctionId: string, sellerId: string): Promise<HttpResult> {

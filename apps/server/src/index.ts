@@ -450,9 +450,16 @@ app.post('/api/auctions/:id/bids', async (req, reply) => {
   if (USE_SUPABASE_REST) {
     const out = await supaRepo.placeBid(id, userId, parsed.data.amount)
     if (out.status === 201) {
-  const msg = JSON.stringify({ type: 'bid:accepted', auctionId: id, amount: parsed.data.amount, userId, at: new Date().toISOString() })
-  broadcast(msg);
-  try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+      const msg = JSON.stringify({ type: 'bid:accepted', auctionId: id, amount: parsed.data.amount, userId, at: new Date().toISOString() })
+      broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+      // also push notifications if provided
+      const notify = out.body?.notify as Array<{ userId: string; type: string; payload: any }> | undefined
+      if (notify && Array.isArray(notify)) {
+        for (const n of notify) {
+          const nm = JSON.stringify({ type: 'notify', userId: n.userId, payload: { type: n.type, ...n.payload }, at: new Date().toISOString() })
+          broadcast(nm); try { await (redisForBids as any)?.publish?.('ws:broadcast', nm) } catch {}
+        }
+      }
     }
     return reply.code(out.status).send(out.body)
   }
@@ -550,12 +557,21 @@ app.post('/api/auctions/:id/decision', async (req, reply) => {
     try { if (sellerPhone) await sendSms(sellerPhone, `Sold ${out.body.auctionTitle || 'item'} for $${Number(out.body.amount).toFixed(2)}`) } catch {}
         const msg = JSON.stringify({ type: 'auction:accepted', auctionId: id, winnerId: out.body.winnerId, amount: Number(out.body.amount) })
         broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+  // notify buyer and seller
+  const nb = JSON.stringify({ type: 'notify', userId: out.body.winnerId, payload: { type: 'offer:accepted', auctionId: id, amount: Number(out.body.amount) }, at: new Date().toISOString() })
+  broadcast(nb); try { await (redisForBids as any)?.publish?.('ws:broadcast', nb) } catch {}
+  const ns = JSON.stringify({ type: 'notify', userId: out.body.sellerId || userId, payload: { type: 'offer:accepted', auctionId: id, amount: Number(out.body.amount) }, at: new Date().toISOString() })
+  broadcast(ns); try { await (redisForBids as any)?.publish?.('ws:broadcast', ns) } catch {}
       } else if (parsed.data.action === 'reject') {
         const msg = JSON.stringify({ type: 'auction:rejected', auctionId: id })
         broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+  const nr = JSON.stringify({ type: 'notify', userId: out.body?.winnerId || out.body?.buyerId, payload: { type: 'offer:rejected', auctionId: id }, at: new Date().toISOString() })
+  try { broadcast(nr); await (redisForBids as any)?.publish?.('ws:broadcast', nr) } catch {}
       } else if (parsed.data.action === 'counter') {
         const msg = JSON.stringify({ type: 'offer:counter', auctionId: id, amount: parsed.data.amount })
         broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+  const nc = JSON.stringify({ type: 'notify', userId: out.body?.buyerId, payload: { type: 'offer:counter', auctionId: id, amount: parsed.data.amount }, at: new Date().toISOString() })
+  try { broadcast(nc); await (redisForBids as any)?.publish?.('ws:broadcast', nc) } catch {}
       }
     }
     return reply.code(out.status).send(out.body)
@@ -621,9 +637,15 @@ app.post('/api/counter/:id/reply', async (req, reply) => {
   try { if (sellerEmail) await sendEmail(sellerEmail, `You accepted: ${aTitle}`, `You accepted the offer at $${amount.toFixed(2)}`, { html }) } catch {}
         const msg = JSON.stringify({ type: 'offer:accepted', auctionId: out.body?.auctionId, amount })
         broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+  const n1 = JSON.stringify({ type: 'notify', userId: userId, payload: { type: 'offer:accepted', auctionId: out.body?.auctionId, amount }, at: new Date().toISOString() })
+  const n2 = JSON.stringify({ type: 'notify', userId: out.body?.sellerId, payload: { type: 'offer:accepted', auctionId: out.body?.auctionId, amount }, at: new Date().toISOString() })
+  try { broadcast(n1); await (redisForBids as any)?.publish?.('ws:broadcast', n1) } catch {}
+  try { broadcast(n2); await (redisForBids as any)?.publish?.('ws:broadcast', n2) } catch {}
       } else {
         const msg = JSON.stringify({ type: 'offer:rejected', auctionId: out.body?.auctionId })
         broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+  const n = JSON.stringify({ type: 'notify', userId: userId, payload: { type: 'offer:rejected', auctionId: out.body?.auctionId }, at: new Date().toISOString() })
+  try { broadcast(n); await (redisForBids as any)?.publish?.('ws:broadcast', n) } catch {}
       }
     }
     return reply.code(out.status).send(out.body)

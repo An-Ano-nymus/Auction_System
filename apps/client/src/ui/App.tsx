@@ -140,12 +140,14 @@ function AuctionCard({ a, placeBid }: { a: any; placeBid: (id: string, amount: n
   )
 }
 
-function Navbar({ session, me, page, setPage, signOut }: { 
+function Navbar({ session, me, page, setPage, signOut, notifications, onOpen }: { 
   session: any; 
   me: { id: string; isAdmin: boolean } | null; 
   page: string; 
   setPage: (page: 'live' | 'admin' | 'auth') => void; 
-  signOut: () => void 
+  signOut: () => void,
+  notifications: any[],
+  onOpen: () => void
 }) {
   return (
     <nav className="bg-white border-b border-slate-200 shadow-sm">
@@ -184,6 +186,19 @@ function Navbar({ session, me, page, setPage, signOut }: {
           <div className="flex items-center gap-4">
             {session ? (
               <>
+                <button
+                  onClick={onOpen}
+                  className="relative p-2 rounded-full hover:bg-slate-100"
+                  aria-label="Notifications"
+                  title="Notifications"
+                >
+                  <span className="text-xl">🔔</span>
+                  {notifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full px-1">
+                      {notifications.length}
+                    </span>
+                  )}
+                </button>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
                     <div className="text-sm font-medium text-slate-900">
@@ -700,6 +715,7 @@ export function App() {
   const [diag, setDiag] = useState<any | null>(null)
   const [me, setMe] = useState<{ id: string; isAdmin: boolean } | null>(null)
   const [notifications, setNotifications] = useState<any[]>([])
+  const [notifyOpen, setNotifyOpen] = useState(false)
   const [adminAuctions, setAdminAuctions] = useState<any[]>([])
 
   const authHeaders = useMemo(() => {
@@ -862,6 +878,14 @@ export function App() {
         setItems((prev) => prev.map((a) => a.id === msg.auctionId ? { ...a, status: 'closed' } : a))
       } else if (msg.type === 'offer:accepted') {
         setItems((prev) => prev.map((a) => a.id === msg.auctionId ? { ...a, status: 'closed', currentPrice: msg.amount } : a))
+      } else if (msg.type === 'notify') {
+        // In-app notifications; only keep recent 20
+        setNotifications((list) => {
+          if (!session) return list
+          if (msg.userId && session.user?.id && msg.userId !== session.user.id) return list
+          const next = [{ id: Math.random().toString(36).slice(2), ...msg.payload, at: msg.at }, ...list]
+          return next.slice(0, 20)
+        })
       }
     }
     wsRef.current = ws
@@ -936,7 +960,7 @@ export function App() {
   if (!session && (page === 'admin' || page === 'auth')) {
     return (
       <>
-        <Navbar session={session} me={me} page={page} setPage={setPage} signOut={signOut} />
+    <Navbar session={session} me={me} page={page} setPage={setPage} signOut={signOut} notifications={notifications} onOpen={() => setNotifyOpen((v) => !v)} />
   <AuthPage email={email} setEmail={setEmail} signIn={signIn} signUp={signUp} supabaseConfigured={supaConfigured} />
       </>
     )
@@ -945,7 +969,7 @@ export function App() {
   return (
     <NowCtx.Provider value={now}>
     <div className="min-h-screen bg-slate-50">
-      <Navbar session={session} me={me} page={page} setPage={setPage} signOut={signOut} />
+      <Navbar session={session} me={me} page={page} setPage={setPage} signOut={signOut} notifications={notifications} onOpen={() => setNotifyOpen((v) => !v)} />
       
       <main className="max-w-6xl mx-auto px-6 py-8">
         {page === 'live' ? (
@@ -1017,6 +1041,27 @@ export function App() {
             />
           </div>
         ) : null}
+
+        {/* Notifications dropdown */}
+        {notifyOpen && session && (
+          <div className="fixed right-6 top-20 w-80 bg-white border border-slate-200 rounded-xl shadow-lg z-50">
+            <div className="p-3 border-b border-slate-200 font-semibold">Notifications</div>
+            <div className="max-h-96 overflow-auto">
+              {notifications.length === 0 ? (
+                <div className="p-4 text-sm text-slate-600">No notifications yet</div>
+              ) : notifications.map((n) => (
+                <div key={n.id} className="p-3 border-b border-slate-100 text-sm">
+                  <div className="font-medium text-slate-900">{n.type}</div>
+                  <div className="text-slate-600">
+                    {n.title ? `${n.title} — ` : ''}
+                    {n.amount ? `$${Number(n.amount).toFixed(2)}` : ''}
+                  </div>
+                  <div className="text-xs text-slate-400">{new Date(n.at || Date.now()).toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Diagnostics Section - Only show on live page for admins */}
         {page === 'live' && me?.isAdmin && (
