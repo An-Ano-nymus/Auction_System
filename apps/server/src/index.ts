@@ -335,6 +335,74 @@ app.post('/admin/auctions/:id/reset', async (req, reply) => {
   return { ok:true }
 })
 
+// Seller controls (start/reset own auction)
+app.post('/host/auctions/:id/start', async (req, reply) => {
+  const user = await getUserId(req)
+  if (!user) return reply.unauthorized('Missing user')
+  const { id } = req.params as { id:string }
+  const parsed = AdminAdjustSchema.safeParse(req.body || {})
+  if (!parsed.success) return reply.badRequest(parsed.error.message)
+  if (USE_SUPABASE_REST) {
+    const a = await supaRepo.getAuction(id)
+    if (a.status !== 200 || a.body?.sellerId !== user) return reply.forbidden('Not seller')
+    const out = await supaRepo.startAuction(id, parsed.data.minutes ?? 10)
+    if (out.status === 200) {
+      const msg = JSON.stringify({ type:'auction:started', auctionId: id })
+      broadcast(msg)
+      try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+    }
+    return reply.code(out.status).send(out.body)
+  }
+  if (!sequelize) return reply.internalServerError('DB not configured')
+  const a = await AuctionModel.findByPk(id)
+  if (!a || a.sellerId !== user) return reply.forbidden('Not seller')
+  const now = new Date()
+  const duration = (parsed.data.minutes ?? 10) * 60_000
+  a.goLiveAt = now as any
+  a.endsAt = new Date(now.getTime()+duration) as any
+  a.status = 'live' as any
+  await a.save()
+  if (redisForBids) await redisForBids.hset(`auction:${a.id}`, { current: Number(a.currentPrice), step: Number(a.bidIncrement), endsAt: (a.endsAt as any).toISOString?.() || new Date(a.endsAt).toISOString() })
+  const msg = JSON.stringify({ type:'auction:started', auctionId: a.id })
+  broadcast(msg)
+  try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+  return { ok:true }
+})
+
+app.post('/host/auctions/:id/reset', async (req, reply) => {
+  const user = await getUserId(req)
+  if (!user) return reply.unauthorized('Missing user')
+  const { id } = req.params as { id:string }
+  const parsed = AdminAdjustSchema.safeParse(req.body || {})
+  if (!parsed.success) return reply.badRequest(parsed.error.message)
+  if (USE_SUPABASE_REST) {
+    const a = await supaRepo.getAuction(id)
+    if (a.status !== 200 || a.body?.sellerId !== user) return reply.forbidden('Not seller')
+    const out = await supaRepo.resetAuction(id, parsed.data.minutes ?? 10)
+    if (out.status === 200) {
+      const msg = JSON.stringify({ type:'auction:reset', auctionId: id })
+      broadcast(msg)
+      try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+    }
+    return reply.code(out.status).send(out.body)
+  }
+  if (!sequelize) return reply.internalServerError('DB not configured')
+  const a = await AuctionModel.findByPk(id)
+  if (!a || a.sellerId !== user) return reply.forbidden('Not seller')
+  const now = new Date()
+  const duration = (parsed.data.minutes ?? 10) * 60_000
+  a.currentPrice = a.startingPrice
+  a.goLiveAt = now as any
+  a.endsAt = new Date(now.getTime()+duration) as any
+  a.status = 'scheduled' as any
+  await a.save()
+  if (redisForBids) await redisForBids.hset(`auction:${a.id}`, { current: Number(a.currentPrice), step: Number(a.bidIncrement), endsAt: (a.endsAt as any).toISOString?.() || new Date(a.endsAt).toISOString() })
+  const msg = JSON.stringify({ type:'auction:reset', auctionId: a.id })
+  broadcast(msg)
+  try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
+  return { ok:true }
+})
+
 // Bid schema
 const BidSchema = z.object({ amount: z.number().positive() });
 

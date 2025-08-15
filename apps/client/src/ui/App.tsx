@@ -78,7 +78,7 @@ function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; item
   )
 }
 
-function AdminPage(props: { authHeaders: any; load: () => Promise<void>; loadAdminAuctions: () => Promise<void>; adminAuctions: any[]; notifications: any[]; createAuction: (e: React.FormEvent) => Promise<void>; title: string; setTitle: any; startingPrice: number; setStartingPrice: any; bidIncrement: number; setBidIncrement: any; goLiveAt: string; setGoLiveAt: any; durationMinutes: number; setDurationMinutes: any; adminStart: (id: string) => Promise<void>; adminReset: (id: string) => Promise<void>; }) {
+function AdminPage(props: { authHeaders: any; load: () => Promise<void>; loadAdminAuctions: () => Promise<void>; adminAuctions: any[]; notifications: any[]; createAuction: (e: React.FormEvent) => Promise<void>; title: string; setTitle: any; startingPrice: number; setStartingPrice: any; bidIncrement: number; setBidIncrement: any; goLiveAt: string; setGoLiveAt: any; durationMinutes: number; setDurationMinutes: any; adminStart: (id: string) => Promise<void>; adminReset: (id: string) => Promise<void>; adminEnd: (id: string) => Promise<void>; adminAccept: (id: string) => Promise<void>; adminReject: (id: string) => Promise<void>; adminCounter: (id: string) => Promise<void>; }) {
   const { adminAuctions, notifications } = props
   return (
     <div>
@@ -98,11 +98,19 @@ function AdminPage(props: { authHeaders: any; load: () => Promise<void>; loadAdm
         {adminAuctions.length === 0 ? (<div style={{ opacity: 0.7 }}>No auctions.</div>) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {adminAuctions.map((a) => (
-              <div key={a.id} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <strong>{a.title}</strong>
-                <span style={{ fontSize: 12, opacity: 0.7 }}>status: {a.status}</span>
+              <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto', alignItems: 'center', gap: 8 }}>
+                <div>
+                  <strong>{a.title}</strong>
+                  <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 8 }}>status: {a.status}</span>
+                </div>
                 <button onClick={() => props.adminStart(a.id)}>Start</button>
                 <button onClick={() => props.adminReset(a.id)}>Reset</button>
+                <button onClick={() => props.adminEnd(a.id)}>End</button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => props.adminAccept(a.id)}>Accept</button>
+                  <button onClick={() => props.adminReject(a.id)}>Reject</button>
+                  <button onClick={() => props.adminCounter(a.id)}>Counter</button>
+                </div>
               </div>
             ))}
           </div>
@@ -136,8 +144,6 @@ export function App() {
   const authHeaders = useMemo(() => {
     const headers: Record<string, string> = { 'content-type': 'application/json' }
     if (session?.access_token) headers['authorization'] = `Bearer ${session.access_token}`
-    // Always include x-user-id as a fallback for non-auth flows
-    headers['x-user-id'] = 'dev_' + (session?.user?.id || 'guest')
     return headers
   }, [session])
 
@@ -186,10 +192,9 @@ export function App() {
 
   async function runDiagnostics() {
     try {
+      if (!session?.access_token) { alert('Please sign in as admin to run diagnostics.'); return }
       const res = await fetch(api('/health/check'), {
-        headers: session?.access_token
-          ? { 'Authorization': `Bearer ${session.access_token}` }
-          : { 'x-user-id': 'dev_admin' }
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
       })
       setDiag(await res.json())
     } catch (e) {
@@ -214,13 +219,21 @@ export function App() {
   async function signIn(e: React.FormEvent) {
     e.preventDefault()
     if (!sb) return alert('Supabase not configured')
-    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } })
+    const pw = (document.getElementById('auth-pw') as HTMLInputElement)?.value || ''
+    const { error } = await sb.auth.signInWithPassword({ email, password: pw })
     if (error) alert(error.message)
-    else alert('Check your email for the login link')
   }
   async function signOut() {
     if (!sb) return
     await sb.auth.signOut()
+  }
+  async function signUp(e: React.FormEvent | React.MouseEvent) {
+    e.preventDefault()
+    if (!sb) return alert('Supabase not configured')
+    const pw = (document.getElementById('auth-pw') as HTMLInputElement)?.value || ''
+    const { error } = await sb.auth.signUp({ email, password: pw, options: { emailRedirectTo: location.origin } })
+    if (error) alert(error.message)
+    else alert('Verification email sent. Please verify your email, then log in.')
   }
 
   // WebSocket live updates
@@ -239,6 +252,7 @@ export function App() {
 
   async function createAuction(e: React.FormEvent) {
     e.preventDefault()
+  if (!session) { alert('Please sign in to host auctions.'); return }
   const res = await fetch(api('/api/auctions'), {
       method: 'POST',
       headers: authHeaders,
@@ -256,6 +270,7 @@ export function App() {
   }
 
   async function placeBid(id: string, amount: number) {
+    if (!session) { alert('Please sign in to place bids.'); return }
     const res = await fetch(api(`/api/auctions/${id}/bids`), {
       method: 'POST',
       headers: authHeaders,
@@ -265,12 +280,34 @@ export function App() {
   }
 
   async function adminStart(id: string) {
-    const res = await fetch(api(`/admin/auctions/${id}/start`), { method: 'POST', headers: authHeaders })
-    if (res.ok) { loadAdminAuctions(); load() } else { alert(await res.text()) }
+    const res = await fetch(api(`/host/auctions/${id}/start`), { method: 'POST', headers: authHeaders })
+    if (res.ok) { loadAdminAuctions(); load(); return }
+    const r2 = await fetch(api(`/admin/auctions/${id}/start`), { method: 'POST', headers: authHeaders })
+    if (r2.ok) { loadAdminAuctions(); load() } else { alert(await r2.text()) }
   }
   async function adminReset(id: string) {
-    const res = await fetch(api(`/admin/auctions/${id}/reset`), { method: 'POST', headers: authHeaders })
-    if (res.ok) { loadAdminAuctions(); load() } else { alert(await res.text()) }
+    const res = await fetch(api(`/host/auctions/${id}/reset`), { method: 'POST', headers: authHeaders })
+    if (res.ok) { loadAdminAuctions(); load(); return }
+    const r2 = await fetch(api(`/admin/auctions/${id}/reset`), { method: 'POST', headers: authHeaders })
+    if (r2.ok) { loadAdminAuctions(); load() } else { alert(await r2.text()) }
+  }
+  async function adminEnd(id: string) {
+    const res = await fetch(api(`/api/auctions/${id}/end`), { method: 'POST', headers: authHeaders })
+    if (res.ok) { loadAdminAuctions(); loadNotifications(); load() } else { alert(await res.text()) }
+  }
+  async function adminAccept(id: string) {
+    const res = await fetch(api(`/api/auctions/${id}/decision`), { method: 'POST', headers: authHeaders, body: JSON.stringify({ action: 'accept' }) })
+    if (res.ok) { loadNotifications(); loadAdminAuctions(); } else { alert(await res.text()) }
+  }
+  async function adminReject(id: string) {
+    const res = await fetch(api(`/api/auctions/${id}/decision`), { method: 'POST', headers: authHeaders, body: JSON.stringify({ action: 'reject' }) })
+    if (res.ok) { loadNotifications(); loadAdminAuctions(); } else { alert(await res.text()) }
+  }
+  async function adminCounter(id: string) {
+    const amt = Number(prompt('Enter counter-offer amount') || '')
+    if (!amt || isNaN(amt)) return
+    const res = await fetch(api(`/api/auctions/${id}/decision`), { method: 'POST', headers: authHeaders, body: JSON.stringify({ action: 'counter', amount: amt }) })
+    if (res.ok) { loadNotifications(); } else { alert(await res.text()) }
   }
 
   return (
@@ -291,12 +328,19 @@ export function App() {
                 <button onClick={signOut}>Sign out</button>
               </div>
             ) : (
-              <form onSubmit={signIn} style={{ display: 'flex', gap: 8 }}>
+              <form onSubmit={signIn} style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
                 <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
                   Email
                   <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
                 </label>
-                <button>Sign in</button>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+                  Password
+                  <input id="auth-pw" type="password" required minLength={6} />
+                </label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button type="submit">Login</button>
+                  <button type="button" onClick={signUp}>Sign up</button>
+                </div>
               </form>
             )
           ) : (
@@ -327,6 +371,10 @@ export function App() {
           setDurationMinutes={setDurationMinutes}
           adminStart={adminStart}
           adminReset={adminReset}
+          adminEnd={adminEnd}
+          adminAccept={adminAccept}
+          adminReject={adminReject}
+          adminCounter={adminCounter}
         />
       )}
 
