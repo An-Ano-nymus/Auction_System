@@ -50,14 +50,22 @@ try {
   }
 } catch {}
 
-// Init Sequelize models (if DATABASE_URL configured)
-await initModels().catch((e) => app.log.warn(e, 'Sequelize init failed'));
+// Init Sequelize models (if DATABASE_URL configured) — skip when using Supabase REST mode
+if (!USE_SUPABASE_REST) {
+  await initModels().catch((e) => app.log.warn(e, 'Sequelize init failed'))
+}
 
 // Redis for highest-bid cache (node-redis if REDIS_URL; else Upstash REST fallback)
 const redisForBids = await initRedis();
 
 // Health
 app.get('/health', async () => ({ ok: true }));
+
+// Runtime config for client (only safe/public values)
+app.get('/config', async () => ({
+  supabaseUrl: process.env.SUPABASE_URL || null,
+  supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
+}))
 
 // Admin diagnostics: checks DB/Redis/env and optionally attempts connections.
 app.get('/health/check', async (req, reply) => {
@@ -671,8 +679,8 @@ try {
 } catch {}
 app.log.info(`Server listening on http://localhost:${PORT}`);
 
-// Background: end auctions whose time passed
-if (sequelize) {
+// Background: end auctions whose time passed (only in Sequelize mode)
+if (sequelize && !USE_SUPABASE_REST) {
   setInterval(async () => {
     const now = new Date()
     try {

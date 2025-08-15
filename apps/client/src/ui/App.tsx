@@ -22,10 +22,12 @@ function deriveWsUrl() {
   return location.origin.replace('http', 'ws')
 }
 const WS_URL = deriveWsUrl()
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-const sb = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null
+let sb: ReturnType<typeof createClient> | null = null as any
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+if (SUPABASE_URL && SUPABASE_KEY) {
+  sb = createClient(SUPABASE_URL, SUPABASE_KEY)
+}
 
 function useCountdown(targetIso: string) {
   const [now, setNow] = useState(Date.now())
@@ -122,11 +124,12 @@ function Navbar({ session, me, page, setPage, signOut }: {
   )
 }
 
-function AuthPage({ email, setEmail, signIn, signUp }: {
+function AuthPage({ email, setEmail, signIn, signUp, supabaseConfigured }: {
   email: string;
   setEmail: (email: string) => void;
   signIn: (e: React.FormEvent) => Promise<void>;
   signUp: (e: React.FormEvent) => Promise<void>;
+  supabaseConfigured: boolean;
 }) {
   const [isSignUp, setIsSignUp] = useState(false)
   const [password, setPassword] = useState('')
@@ -212,7 +215,7 @@ function AuthPage({ email, setEmail, signIn, signUp }: {
             </button>
           </div>
 
-          {!sb && (
+          {!supabaseConfigured && (
             <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <p className="text-sm text-amber-800">
                 <strong>Dev Mode:</strong> Supabase not configured. Authentication is disabled.
@@ -560,6 +563,7 @@ export function App() {
   const [goLiveAt, setGoLiveAt] = useState<string>(() => new Date(Date.now() + 60_000).toISOString().slice(0,16))
   const [session, setSession] = useState<any>(null)
   const [email, setEmail] = useState('')
+  const [supaConfigured, setSupaConfigured] = useState(!!(SUPABASE_URL && SUPABASE_KEY))
   const [diag, setDiag] = useState<any | null>(null)
   const [me, setMe] = useState<{ id: string; isAdmin: boolean } | null>(null)
   const [notifications, setNotifications] = useState<any[]>([])
@@ -645,20 +649,36 @@ export function App() {
 
   // Supabase session
   useEffect(() => {
-    if (!sb) return
-    sb.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
-      setSession(s)
-      if (s) {
-        setPage('live') // Redirect to live page after successful login
+    let unsub: (() => void) | undefined
+    async function ensureClient() {
+      if (!sb) {
+        try {
+          const res = await fetch(api('/config'))
+          const cfg = await res.json()
+          if (cfg?.supabaseUrl && cfg?.supabaseAnonKey) {
+            sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
+            setSupaConfigured(true)
+          } else {
+            setSupaConfigured(false)
+          }
+        } catch {}
       }
-    })
-    return () => sub.subscription.unsubscribe()
+      if (!sb) return
+      if (!sb) return
+      sb.auth.getSession().then(({ data }) => setSession(data.session))
+      const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
+        setSession(s)
+        if (s) setPage('live')
+      })
+      unsub = () => sub.subscription.unsubscribe()
+    }
+    ensureClient()
+    return () => { if (unsub) unsub() }
   }, [])
 
   async function signIn(e: React.FormEvent) {
     e.preventDefault()
-    if (!sb) return alert('Supabase not configured')
+  if (!sb) return alert('Supabase not configured')
     const pw = (document.getElementById('auth-pw') as HTMLInputElement)?.value || ''
     const { error } = await sb.auth.signInWithPassword({ email, password: pw })
     if (error) alert(error.message)
@@ -672,7 +692,7 @@ export function App() {
   
   async function signUp(e: React.FormEvent | React.MouseEvent) {
     e.preventDefault()
-    if (!sb) return alert('Supabase not configured')
+  if (!sb) return alert('Supabase not configured')
     const pw = (document.getElementById('auth-pw') as HTMLInputElement)?.value || ''
     const { error } = await sb.auth.signUp({ email, password: pw, options: { emailRedirectTo: location.origin } })
     if (error) alert(error.message)
@@ -758,7 +778,7 @@ export function App() {
     return (
       <>
         <Navbar session={session} me={me} page={page} setPage={setPage} signOut={signOut} />
-        <AuthPage email={email} setEmail={setEmail} signIn={signIn} signUp={signUp} />
+  <AuthPage email={email} setEmail={setEmail} signIn={signIn} signUp={signUp} supabaseConfigured={supaConfigured} />
       </>
     )
   }

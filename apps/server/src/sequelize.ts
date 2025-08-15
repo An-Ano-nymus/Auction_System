@@ -1,12 +1,14 @@
 import { Sequelize, DataTypes } from 'sequelize'
 import { URL } from 'url'
 
+const USE_SUPABASE_REST = process.env.USE_SUPABASE_REST === 'true'
+
 const DATABASE_URL = process.env.DATABASE_URL
-if (!DATABASE_URL) {
+if (!DATABASE_URL && !USE_SUPABASE_REST) {
   console.warn('[DB] DATABASE_URL not set. Sequelize will not connect. Some features will be disabled until configured.')
 }
 
-export const sequelize = DATABASE_URL
+export const sequelize = (!USE_SUPABASE_REST && DATABASE_URL)
   ? (() => {
       const u = new URL(DATABASE_URL)
       const username = decodeURIComponent(u.username)
