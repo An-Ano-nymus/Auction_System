@@ -101,7 +101,8 @@ export async function placeBid(auctionId: string, userId: string, amount: number
     .select()
   if (e2) return { status: 500, body: e2.message }
   if (!updated || updated.length === 0) return { status: 409, body: 'Bid too low or auction ended' }
-  await supa.from('bids').insert({ id: nanoid(12), auctionId, bidderId: userId, amount })
+  const { error: e3 } = await supa.from('bids').insert({ id: nanoid(12), auctionId, bidderId: userId, amount })
+  if (e3) return { status: 500, body: e3.message }
   const { data: last } = await supa.from('bids').select('bidderId').eq('auctionId', auctionId).order('createdAt', { ascending: false }).limit(1)
   if (last && last[0] && last[0].bidderId !== userId) {
     await supa.from('notifications').insert({ id: nanoid(12), userId: last[0].bidderId, type: 'bid:outbid', payload: { auctionId, amount }, read: false })
