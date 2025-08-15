@@ -311,40 +311,45 @@ export function App() {
   }
 
   return (
-    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', padding: 24, maxWidth: 1100, margin: '0 auto', background: 'linear-gradient(180deg,#f8fafc,#ffffff)' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <h1 style={{ margin: 0 }}>Realtime Auctions</h1>
-          <nav style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setPage('live')} disabled={page==='live'}>Live</button>
-            <button onClick={() => setPage('admin')} disabled={page==='admin'}>Admin</button>
+    <div className="max-w-6xl mx-auto p-6">
+      <header className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold">Realtime Auctions</h1>
+          <nav className="flex gap-2">
+            <button className={`btn-secondary ${page==='live' ? 'opacity-50' : ''}`} onClick={() => setPage('live')} disabled={page==='live'}>Live</button>
+            <button className={`btn-secondary ${page==='admin' ? 'opacity-50' : ''}`} onClick={() => setPage('admin')} disabled={page==='admin'}>Admin</button>
           </nav>
         </div>
         <div>
           {sb ? (
             session ? (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <span style={{ opacity: 0.7 }}>{session.user.email || session.user.id}</span>
-                <button onClick={signOut}>Sign out</button>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-600">{session.user.email || session.user.id}</span>
+                <button className="btn" onClick={signOut}>Sign out</button>
               </div>
             ) : (
-              <form onSubmit={signIn} style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
-                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
-                  Email
-                  <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
-                  Password
-                  <input id="auth-pw" type="password" required minLength={6} />
-                </label>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button type="submit">Login</button>
-                  <button type="button" onClick={signUp}>Sign up</button>
+              <div className="max-w-md">
+                <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
+                  <h2 className="text-lg font-medium mb-3">Login / Sign up</h2>
+                  <form onSubmit={signIn} className="grid grid-cols-2 gap-3 items-end">
+                    <label className="label col-span-1">
+                      <span className="label">Email</span>
+                      <input className="input" type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                    </label>
+                    <label className="label col-span-1">
+                      <span className="label">Password</span>
+                      <input id="auth-pw" className="input" type="password" required minLength={6} />
+                    </label>
+                    <div className="col-span-2 flex gap-2">
+                      <button type="submit" className="btn">Login</button>
+                      <button type="button" className="btn-secondary" onClick={signUp}>Sign up</button>
+                    </div>
+                  </form>
                 </div>
-              </form>
+              </div>
             )
           ) : (
-            <span style={{ opacity: 0.6 }}>Dev mode (no auth)</span>
+            <span className="text-slate-500">Dev mode (no auth)</span>
           )}
         </div>
       </header>
@@ -378,22 +383,20 @@ export function App() {
         />
       )}
 
-      <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ margin: 0 }}>Diagnostics</h3>
-          <button onClick={runDiagnostics}>Run checks</button>
+      <section className="mt-6 bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium">Diagnostics</h3>
+          <button className="btn" onClick={runDiagnostics}>Run checks</button>
         </div>
-        <div style={{ fontSize: 12, opacity: 0.8, marginTop: 8 }}>
-          Checks DB, Redis, Supabase, SendGrid, and PUBLIC_ORIGIN (admin only).
-        </div>
+        <div className="text-xs text-slate-500 mt-2">Checks DB, Redis, Supabase, SendGrid, and PUBLIC_ORIGIN (admin only).</div>
         {diag && (
-          <pre style={{ background: '#0f172a', color: '#e2e8f0', padding: 12, borderRadius: 8, marginTop: 12, overflow: 'auto' }}>{JSON.stringify(diag, null, 2)}</pre>
+          <pre className="mt-3 rounded bg-slate-900 text-slate-100 p-3 overflow-auto">{JSON.stringify(diag, null, 2)}</pre>
         )}
       </section>
 
       {me?.isAdmin && page === 'admin' && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-          <button onClick={loadAdminAuctions}>Refresh admin lists</button>
+        <div className="flex justify-end mt-2">
+          <button className="btn-secondary" onClick={loadAdminAuctions}>Refresh admin lists</button>
         </div>
       )}
     </div>
