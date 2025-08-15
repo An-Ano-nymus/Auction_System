@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, createContext, useContext } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 // Robust URL helpers: avoid protocol-relative //api and trailing slashes
@@ -29,12 +29,9 @@ if (SUPABASE_URL && SUPABASE_KEY) {
   sb = createClient(SUPABASE_URL, SUPABASE_KEY)
 }
 
+const NowCtx = createContext<number>(Date.now())
 function useCountdown(targetIso: string) {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [])
+  const now = useContext(NowCtx)
   const ends = useMemo(() => new Date(targetIso).getTime(), [targetIso])
   const ms = Math.max(0, ends - now)
   const s = Math.floor(ms / 1000) % 60
@@ -373,6 +370,8 @@ function AdminPage(props: {
   adminCounter: (id: string, amount: number) => Promise<void>; 
 }) {
   const [counterAmt, setCounterAmt] = useState<Record<string, string>>({})
+  const [openBids, setOpenBids] = useState<Record<string, boolean>>({})
+  const [bidPages, setBidPages] = useState<Record<string, { items: any[]; offset: number; limit: number; done: boolean }>>({})
   const { adminAuctions, notifications } = props
   const stats = useMemo(() => {
     const s = { total: adminAuctions.length, live: 0, scheduled: 0, ended: 0, closed: 0 }
@@ -584,6 +583,68 @@ function AdminPage(props: {
                     </div>
                   </div>
                 </div>
+                {/* Bid history drawer */}
+                <div className="mt-3">
+                  <button
+                    onClick={async () => {
+                      setOpenBids((m) => ({ ...m, [a.id]: !m[a.id] }))
+                      if (!bidPages[a.id]) {
+                        // initial load
+                        try {
+                          const res = await fetch(api(`/api/auctions/${a.id}/bids?offset=0&limit=10`), { headers: props.authHeaders })
+                          const data = await res.json()
+                          setBidPages((m) => ({ ...m, [a.id]: { items: data.items || [], offset: 0, limit: 10, done: !data.items || data.items.length < 10 } }))
+                        } catch {}
+                      }
+                    }}
+                    className="text-sm text-slate-600 hover:text-slate-900"
+                  >
+                    {openBids[a.id] ? 'Hide bids ▲' : 'Show bids ▼'}
+                  </button>
+                  {openBids[a.id] && (
+                    <div className="mt-2 bg-slate-50 rounded-md p-3">
+                      {(bidPages[a.id]?.items || []).length === 0 ? (
+                        <div className="text-sm text-slate-500">No bids yet.</div>
+                      ) : (
+                        <ul className="divide-y divide-slate-200">
+                          {(bidPages[a.id]?.items || []).map((b) => (
+                            <li key={b.id} className="py-2 text-sm flex justify-between">
+                              <span className="text-slate-600">{new Date(b.createdAt || b.created_at || Date.now()).toLocaleString()}</span>
+                              <span className="font-medium text-slate-900">${Number(b.amount).toFixed(2)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {!bidPages[a.id]?.done && (
+                        <div className="mt-2 text-right">
+                          <button
+                            onClick={async () => {
+                              const page = bidPages[a.id] || { items: [], offset: 0, limit: 10, done: false }
+                              const nextOffset = page.offset + page.limit
+                              try {
+                                const res = await fetch(api(`/api/auctions/${a.id}/bids?offset=${nextOffset}&limit=${page.limit}`), { headers: props.authHeaders })
+                                const data = await res.json()
+                                const more = data.items || []
+                                setBidPages((m) => ({
+                                  ...m,
+                                  [a.id]: {
+                                    items: [...(m[a.id]?.items || []), ...more],
+                                    offset: nextOffset,
+                                    limit: page.limit,
+                                    done: more.length < page.limit
+                                  }
+                                }))
+                              } catch {}
+                            }}
+                            className="text-sm px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100"
+                          >
+                            Load more
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -625,6 +686,9 @@ export function App() {
   const [page, setPage] = useState<'live'|'admin'|'auth'>('live')
   const [items, setItems] = useState<any[]>([])
   const [showListings, setShowListings] = useState(false)
+  const [listPage, setListPage] = useState(0)
+  const PAGE_SIZE = 12
+  const [now, setNow] = useState(Date.now())
   const [title, setTitle] = useState('')
   const [startingPrice, setStartingPrice] = useState(0)
   const [durationMinutes, setDurationMinutes] = useState(10)
@@ -646,7 +710,10 @@ export function App() {
 
   async function load() {
     try {
-      const res = await fetch(api('/api/auctions'))
+      const qs = showListings
+        ? `?status=ended,closed&offset=${listPage * PAGE_SIZE}&limit=${PAGE_SIZE}`
+        : `?status=live&offset=0&limit=${PAGE_SIZE}`
+      const res = await fetch(api(`/api/auctions${qs}`))
       const data = await res.json()
       setItems(Array.isArray(data.items) ? data.items : [])
     } catch (e) {
@@ -715,6 +782,11 @@ export function App() {
       loadNotifications()
     }
   }, [page, session])
+
+  // Reload auctions when listings toggle or page changes
+  useEffect(() => {
+    load()
+  }, [showListings, listPage])
 
   // Supabase session
   useEffect(() => {
@@ -796,6 +868,12 @@ export function App() {
     return () => ws.close()
   }, [])
 
+  // single countdown ticker
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
   async function createAuction(e: React.FormEvent) {
     e.preventDefault()
     if (!session) { alert('Please sign in to host auctions.'); return }
@@ -865,6 +943,7 @@ export function App() {
   }
 
   return (
+    <NowCtx.Provider value={now}>
     <div className="min-h-screen bg-slate-50">
       <Navbar session={session} me={me} page={page} setPage={setPage} signOut={signOut} />
       
@@ -891,6 +970,20 @@ export function App() {
               })}
               placeBid={placeBid}
             />
+            {showListings && (
+              <div className="mt-6 flex justify-between items-center">
+                <button
+                  onClick={() => setListPage((p) => Math.max(0, p - 1))}
+                  disabled={listPage === 0}
+                  className="px-3 py-1 border border-slate-300 rounded-md disabled:opacity-50"
+                >Prev</button>
+                <div className="text-sm text-slate-600">Page {listPage + 1}</div>
+                <button
+                  onClick={() => setListPage((p) => p + 1)}
+                  className="px-3 py-1 border border-slate-300 rounded-md"
+                >Next</button>
+              </div>
+            )}
           </div>
         ) : page === 'admin' ? (
           <div>
@@ -948,6 +1041,7 @@ export function App() {
           </div>
         )}
       </main>
-    </div>
+  </div>
+  </NowCtx.Provider>
   )
 }

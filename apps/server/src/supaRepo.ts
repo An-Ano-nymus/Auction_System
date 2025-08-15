@@ -38,9 +38,21 @@ export async function createAuction(body: any, sellerId: string): Promise<HttpRe
   return { status: 201, body: data }
 }
 
-export async function listAuctions(): Promise<HttpResult> {
+export async function listAuctions(filters?: { status?: string | string[]; offset?: number; limit?: number }): Promise<HttpResult> {
   if (!supa) return { status: 200, body: { items: [] } }
-  const { data, error } = await supa.from('auctions').select('*').order('createdAt', { ascending: false })
+  let q = supa.from('auctions').select('*')
+  if (filters?.status) {
+    const statuses = Array.isArray(filters.status) ? filters.status : String(filters.status).split(',').map(s => s.trim()).filter(Boolean)
+    if (statuses.length === 1) q = q.eq('status', statuses[0])
+    else if (statuses.length > 1) q = (q as any).in('status', statuses)
+  }
+  q = q.order('createdAt', { ascending: false })
+  if (typeof filters?.offset === 'number' && typeof filters?.limit === 'number' && filters.limit > 0) {
+    const start = Math.max(0, filters.offset)
+    const end = start + filters.limit - 1
+    q = q.range(start, end)
+  }
+  const { data, error } = await q
   if (error) return { status: 500, body: error.message }
   return { status: 200, body: { items: data } }
 }
@@ -59,9 +71,15 @@ export async function getAuction(id: string): Promise<HttpResult> {
   return { status: 200, body: data }
 }
 
-export async function listBids(id: string): Promise<HttpResult> {
+export async function listBids(id: string, filters?: { offset?: number; limit?: number }): Promise<HttpResult> {
   if (!supa) return { status: 200, body: { items: [] } }
-  const { data, error } = await supa.from('bids').select('*').eq('auctionId', id).order('createdAt', { ascending: false })
+  let q = supa.from('bids').select('*').eq('auctionId', id).order('createdAt', { ascending: false })
+  if (typeof filters?.offset === 'number' && typeof filters?.limit === 'number' && filters.limit > 0) {
+    const start = Math.max(0, filters.offset)
+    const end = start + filters.limit - 1
+    q = q.range(start, end)
+  }
+  const { data, error } = await q
   if (error) return { status: 500, body: error.message }
   return { status: 200, body: { items: data } }
 }

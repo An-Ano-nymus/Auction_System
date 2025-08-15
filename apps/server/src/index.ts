@@ -173,9 +173,12 @@ app.post('/api/auctions', async (req, reply) => {
 });
 
 // List auctions (basic)
-app.get('/api/auctions', async () => {
+app.get('/api/auctions', async (req) => {
   if (USE_SUPABASE_REST) {
-    const out = await supaRepo.listAuctions()
+    const { status, offset, limit } = (req.query || {}) as any
+    const off = offset ? Number(offset) : undefined
+    const lim = limit ? Number(limit) : undefined
+    const out = await supaRepo.listAuctions({ status, offset: off, limit: lim })
     return out.body
   }
   if (!sequelize) return { items: [] };
@@ -220,7 +223,10 @@ app.get('/api/auctions/:id', async (req, reply) => {
 
 app.get('/api/auctions/:id/bids', async (req, reply) => {
   if (USE_SUPABASE_REST) {
-    const out = await supaRepo.listBids((req.params as any).id)
+    const { offset, limit } = (req.query || {}) as any
+    const off = offset ? Number(offset) : undefined
+    const lim = limit ? Number(limit) : undefined
+    const out = await supaRepo.listBids((req.params as any).id, { offset: off, limit: lim })
     return reply.code(out.status).send(out.body)
   }
   if (!sequelize) return reply.send({ items: [] })
@@ -269,7 +275,10 @@ app.get('/admin/auctions', async (req, reply) => {
   if (!user) return reply.unauthorized('Missing user')
   if (!ADMIN_USER_ID || user !== ADMIN_USER_ID) return reply.forbidden('Not admin')
   if (USE_SUPABASE_REST) {
-    const out = await supaRepo.listAuctions()
+  const { status, offset, limit } = (req.query || {}) as any
+  const off = offset ? Number(offset) : undefined
+  const lim = limit ? Number(limit) : undefined
+  const out = await supaRepo.listAuctions({ status, offset: off, limit: lim })
     return reply.code(out.status).send(out.body)
   }
   if (!sequelize) return reply.send({ items: [] })
