@@ -229,6 +229,20 @@ app.get('/api/auctions/:id/bids', async (req, reply) => {
   return { items: rows.map((b: any) => ({ id: b.id, bidderId: b.bidderId, amount: Number(b.amount), createdAt: new Date(b.createdAt).toISOString() })) }
 })
 
+// Winner/top bid
+app.get('/api/auctions/:id/winner', async (req, reply) => {
+  const { id } = req.params as { id: string }
+  if (USE_SUPABASE_REST) {
+    const top = await supaRepo.getTopBid(id)
+    if (!top) return reply.notFound()
+    return reply.send(top)
+  }
+  if (!sequelize) return reply.notFound()
+  const row = await BidModel.findOne({ where: { auctionId: id }, order: [['amount','DESC']] })
+  if (!row) return reply.notFound()
+  return reply.send({ bidderId: row.bidderId, amount: Number(row.amount) })
+})
+
 // Notifications for current user
 app.get('/api/notifications', async (req, reply) => {
   const userId = await getUserId(req)
