@@ -1,5 +1,8 @@
 -- Schema for Supabase Postgres (aligned with app code expected column names)
 
+-- Enable UUID generation if not present
+create extension if not exists pgcrypto;
+
 -- Auctions table (camelCase columns)
 create table if not exists public.auctions (
   id text primary key,
@@ -101,7 +104,7 @@ do $$ begin
 end $$;
 
 create table if not exists public.bids (
-  id text primary key,
+  id text primary key default gen_random_uuid()::text,
   "auctionId" text not null references public.auctions(id) on delete cascade,
   "bidderId" text not null,
   amount numeric not null,
