@@ -41,44 +41,292 @@ function useCountdown(targetIso: string) {
   return { h, m, s, done: ms === 0 }
 }
 
-function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; items: any[]; placeBid: (id: string, amount: number) => Promise<void> }) {
-  function useCountdown(targetIso: string) {
-    const [now, setNow] = useState(Date.now())
-    useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
-    const ends = useMemo(() => new Date(targetIso).getTime(), [targetIso])
-    const ms = Math.max(0, ends - now); const s = Math.floor(ms/1000)%60; const m = Math.floor(ms/1000/60)%60; const h = Math.floor(ms/1000/60/60)
-    return { h,m,s,done: ms===0 }
-  }
+function Navbar({ session, me, page, setPage, signOut }: { 
+  session: any; 
+  me: { id: string; isAdmin: boolean } | null; 
+  page: string; 
+  setPage: (page: 'live' | 'admin' | 'auth') => void; 
+  signOut: () => void 
+}) {
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
-        {items.map((a) => {
-          const { h, m, s, done } = useCountdown(a.endsAt)
-          return (
-            <article key={a.id} style={{ border: '1px solid #e6eaf0', borderRadius: 14, padding: 16, boxShadow: '0 12px 28px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: 12, background: '#fff' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <h3 style={{ margin: 0 }}>{a.title}</h3>
-                <span style={{ fontSize: 12, opacity: 0.7 }}>{done ? 'Ended' : `Ends in ${h}h ${m}m ${s}s`}</span>
+    <nav className="bg-white border-b border-slate-200 shadow-sm">
+      <div className="max-w-6xl mx-auto px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            <h1 className="text-2xl font-bold text-slate-900">
+              🏛️ AuctionHub
+            </h1>
+            {session && (
+              <div className="flex gap-1">
+                <button 
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    page === 'live' 
+                      ? 'bg-indigo-100 text-indigo-700' 
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                  onClick={() => setPage('live')}
+                >
+                  Live Auctions
+                </button>
+                <button 
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    page === 'admin' 
+                      ? 'bg-indigo-100 text-indigo-700' 
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                  onClick={() => setPage('admin')}
+                >
+                  Host Dashboard
+                </button>
               </div>
-              <div style={{ fontSize: 18 }}>Current: <strong>${Number(a.currentPrice).toFixed(2)}</strong></div>
-              {a.bidIncrement ? (<div style={{ fontSize: 12, opacity: 0.7 }}>Min increment: ${Number(a.bidIncrement).toFixed(2)}</div>) : null}
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 1)}>+1</button>
-                <button disabled={done} onClick={() => placeBid(a.id, Number(a.currentPrice) + 5)}>+5</button>
-                <form onSubmit={(e) => { e.preventDefault(); const amt = Number((e.currentTarget as any).amount.value); if (!isNaN(amt)) placeBid(a.id, amt) }} style={{ display: 'flex', gap: 6 }}>
-                  <input name="amount" type="number" min={0} step={1} placeholder={String(Number(a.currentPrice) + Number(a.bidIncrement || 1))} style={{ width: 100 }} />
-                  <button disabled={done} type="submit">Bid</button>
-                </form>
-              </div>
-            </article>
-          )
-        })}
+            )}
+          </div>
+          
+          <div className="flex items-center gap-4">
+            {session ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="text-sm font-medium text-slate-900">
+                      {session.user.email}
+                    </div>
+                    {me?.isAdmin && (
+                      <div className="text-xs text-indigo-600 font-medium">Admin</div>
+                    )}
+                  </div>
+                  <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                    <span className="text-indigo-600 font-medium text-sm">
+                      {session.user.email?.[0]?.toUpperCase() || 'U'}
+                    </span>
+                  </div>
+                </div>
+                <button 
+                  onClick={signOut}
+                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <button 
+                onClick={() => setPage('auth')}
+                className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Sign In
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </nav>
+  )
+}
+
+function AuthPage({ email, setEmail, signIn, signUp }: {
+  email: string;
+  setEmail: (email: string) => void;
+  signIn: (e: React.FormEvent) => Promise<void>;
+  signUp: (e: React.FormEvent) => Promise<void>;
+}) {
+  const [isSignUp, setIsSignUp] = useState(false)
+  const [password, setPassword] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    // Set password in the DOM element for compatibility with existing code
+    const pwInput = document.getElementById('auth-pw') as HTMLInputElement
+    if (pwInput) pwInput.value = password
+    
+    if (isSignUp) {
+      await signUp(e)
+    } else {
+      await signIn(e)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-cyan-50 flex items-center justify-center p-6">
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
+          <div className="text-center mb-8">
+            <div className="text-4xl mb-4">🏛️</div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">
+              {isSignUp ? 'Create Account' : 'Welcome Back'}
+            </h2>
+            <p className="text-slate-600">
+              {isSignUp 
+                ? 'Join AuctionHub to start bidding and hosting auctions' 
+                : 'Sign in to your AuctionHub account'
+              }
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Email Address
+              </label>
+              <input
+                type="email"
+                required
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Password
+              </label>
+              <input
+                id="auth-pw"
+                type="password"
+                required
+                minLength={6}
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                placeholder={isSignUp ? 'Create a password (min 6 characters)' : 'Enter your password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-colors"
+            >
+              {isSignUp ? 'Create Account' : 'Sign In'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => setIsSignUp(!isSignUp)}
+              className="text-indigo-600 hover:text-indigo-700 font-medium"
+            >
+              {isSignUp 
+                ? 'Already have an account? Sign in' 
+                : "Don't have an account? Sign up"
+              }
+            </button>
+          </div>
+
+          {!sb && (
+            <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-800">
+                <strong>Dev Mode:</strong> Supabase not configured. Authentication is disabled.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function AdminPage(props: { authHeaders: any; load: () => Promise<void>; loadAdminAuctions: () => Promise<void>; adminAuctions: any[]; notifications: any[]; createAuction: (e: React.FormEvent) => Promise<void>; title: string; setTitle: any; startingPrice: number; setStartingPrice: any; bidIncrement: number; setBidIncrement: any; goLiveAt: string; setGoLiveAt: any; durationMinutes: number; setDurationMinutes: any; adminStart: (id: string) => Promise<void>; adminReset: (id: string) => Promise<void>; adminEnd: (id: string) => Promise<void>; adminAccept: (id: string) => Promise<void>; adminReject: (id: string) => Promise<void>; adminCounter: (id: string) => Promise<void>; }) {
+function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; items: any[]; placeBid: (id: string, amount: number) => Promise<void> }) {
+  if (items.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-6xl mb-4">🏛️</div>
+        <h3 className="text-xl font-semibold text-slate-900 mb-2">No Live Auctions</h3>
+        <p className="text-slate-600">Check back later or create your own auction!</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {items.map((a) => {
+        const { h, m, s, done } = useCountdown(a.endsAt)
+        return (
+          <div key={a.id} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden hover:shadow-xl transition-shadow">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-lg font-semibold text-slate-900 line-clamp-2">{a.title}</h3>
+                <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  done ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                }`}>
+                  {done ? 'Ended' : 'Live'}
+                </div>
+              </div>
+              
+              {a.description && (
+                <p className="text-slate-600 text-sm mb-4 line-clamp-2">{a.description}</p>
+              )}
+              
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-slate-600">Current Bid</span>
+                  <span className="text-2xl font-bold text-slate-900">
+                    ${Number(a.currentPrice).toFixed(2)}
+                  </span>
+                </div>
+                
+                {!done && (
+                  <div className="text-center">
+                    <div className="text-sm text-slate-600 mb-2">
+                      Ends in {h}h {m}m {s}s
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => placeBid(a.id, Number(a.currentPrice) + 1)}
+                        className="flex-1 bg-indigo-600 text-white py-2 px-3 rounded-lg font-medium hover:bg-indigo-700 transition-colors text-sm"
+                      >
+                        +$1
+                      </button>
+                      <button 
+                        onClick={() => placeBid(a.id, Number(a.currentPrice) + 5)}
+                        className="flex-1 bg-indigo-600 text-white py-2 px-3 rounded-lg font-medium hover:bg-indigo-700 transition-colors text-sm"
+                      >
+                        +$5
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const amt = Number(prompt(`Enter bid amount (min: $${(Number(a.currentPrice) + Number(a.bidIncrement || 1)).toFixed(2)})`))
+                          if (!isNaN(amt)) placeBid(a.id, amt)
+                        }}
+                        className="flex-1 border border-indigo-600 text-indigo-600 py-2 px-3 rounded-lg font-medium hover:bg-indigo-50 transition-colors text-sm"
+                      >
+                        Custom
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function AdminPage(props: { 
+  authHeaders: any; 
+  load: () => Promise<void>; 
+  loadAdminAuctions: () => Promise<void>; 
+  adminAuctions: any[]; 
+  notifications: any[]; 
+  createAuction: (e: React.FormEvent) => Promise<void>; 
+  title: string; 
+  setTitle: any; 
+  startingPrice: number; 
+  setStartingPrice: any; 
+  bidIncrement: number; 
+  setBidIncrement: any; 
+  goLiveAt: string; 
+  setGoLiveAt: any; 
+  durationMinutes: number; 
+  setDurationMinutes: any; 
+  adminStart: (id: string) => Promise<void>; 
+  adminReset: (id: string) => Promise<void>; 
+  adminEnd: (id: string) => Promise<void>; 
+  adminAccept: (id: string) => Promise<void>; 
+  adminReject: (id: string) => Promise<void>; 
+  adminCounter: (id: string) => Promise<void>; 
+}) {
   const { adminAuctions, notifications } = props
   const stats = useMemo(() => {
     const s = { total: adminAuctions.length, live: 0, scheduled: 0, ended: 0, closed: 0 }
@@ -88,82 +336,222 @@ function AdminPage(props: { authHeaders: any; load: () => Promise<void>; loadAdm
     }
     return s
   }, [adminAuctions])
+
   return (
-    <div className="space-y-6">
-      <section className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="font-medium mb-3">Host auction</h3>
-        <form onSubmit={props.createAuction} className="grid grid-cols-6 gap-3 items-end">
-          <label className="col-span-2">
-            <span className="label">Title</span>
-            <input className="input" placeholder="Vintage camera" value={props.title} onChange={(e) => props.setTitle(e.target.value)} />
-          </label>
-          <label>
-            <span className="label">Starting Price</span>
-            <input className="input" type="number" min={0} step={1} value={props.startingPrice} onChange={(e) => props.setStartingPrice(Number(e.target.value))} />
-          </label>
-          <label>
-            <span className="label">Bid Increment</span>
-            <input className="input" type="number" min={1} step={1} value={props.bidIncrement} onChange={(e) => props.setBidIncrement(Number(e.target.value))} />
-          </label>
-          <label className="col-span-2">
-            <span className="label">Go-live</span>
-            <input className="input" type="datetime-local" value={props.goLiveAt} onChange={(e) => props.setGoLiveAt(e.target.value)} />
-          </label>
-          <label>
-            <span className="label">Duration (mins)</span>
-            <input className="input" type="number" min={1} step={1} value={props.durationMinutes} onChange={(e) => props.setDurationMinutes(Number(e.target.value))} />
-          </label>
-          <div className="col-span-5"></div>
-          <button className="btn">Create</button>
+    <div className="space-y-8">
+      {/* Create Auction Form */}
+      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6">
+        <h2 className="text-xl font-semibold text-slate-900 mb-6">Create New Auction</h2>
+        <form onSubmit={props.createAuction} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Auction Title
+              </label>
+              <input 
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Vintage camera, rare collectible, etc."
+                value={props.title} 
+                onChange={(e) => props.setTitle(e.target.value)} 
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Starting Price ($)
+              </label>
+              <input 
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                type="number" 
+                min={0} 
+                step={1} 
+                value={props.startingPrice} 
+                onChange={(e) => props.setStartingPrice(Number(e.target.value))} 
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Bid Increment ($)
+              </label>
+              <input 
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                type="number" 
+                min={1} 
+                step={1} 
+                value={props.bidIncrement} 
+                onChange={(e) => props.setBidIncrement(Number(e.target.value))} 
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Go Live At
+              </label>
+              <input 
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                type="datetime-local" 
+                value={props.goLiveAt} 
+                onChange={(e) => props.setGoLiveAt(e.target.value)} 
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Duration (minutes)
+              </label>
+              <input 
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                type="number" 
+                min={1} 
+                step={1} 
+                value={props.durationMinutes} 
+                onChange={(e) => props.setDurationMinutes(Number(e.target.value))} 
+                required
+              />
+            </div>
+          </div>
+          
+          <button 
+            type="submit"
+            className="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+          >
+            Create Auction
+          </button>
         </form>
-      </section>
-      <section className="bg-white border border-slate-200 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-medium">Admin dashboard</h3>
-          <div className="text-xs text-slate-500">Overview of your auctions</div>
+      </div>
+
+      {/* Stats Dashboard */}
+      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6">
+        <h2 className="text-xl font-semibold text-slate-900 mb-6">Dashboard Overview</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-slate-50 rounded-lg p-4 text-center">
+            <div className="text-2xl font-bold text-slate-900">{stats.total}</div>
+            <div className="text-sm text-slate-600">Total Auctions</div>
+          </div>
+          <div className="bg-green-50 rounded-lg p-4 text-center">
+            <div className="text-2xl font-bold text-green-700">{stats.live}</div>
+            <div className="text-sm text-green-600">Live Now</div>
+          </div>
+          <div className="bg-blue-50 rounded-lg p-4 text-center">
+            <div className="text-2xl font-bold text-blue-700">{stats.scheduled}</div>
+            <div className="text-sm text-blue-600">Scheduled</div>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4 text-center">
+            <div className="text-2xl font-bold text-gray-700">{stats.ended + stats.closed}</div>
+            <div className="text-sm text-gray-600">Completed</div>
+          </div>
         </div>
-        <div className="grid grid-cols-4 gap-3">
-          <div className="rounded-md border border-slate-200 p-3"><div className="text-xs text-slate-500">Total</div><div className="text-xl font-semibold">{stats.total}</div></div>
-          <div className="rounded-md border border-slate-200 p-3"><div className="text-xs text-slate-500">Live</div><div className="text-xl font-semibold">{stats.live}</div></div>
-          <div className="rounded-md border border-slate-200 p-3"><div className="text-xs text-slate-500">Scheduled</div><div className="text-xl font-semibold">{stats.scheduled}</div></div>
-          <div className="rounded-md border border-slate-200 p-3"><div className="text-xs text-slate-500">Closed</div><div className="text-xl font-semibold">{stats.ended + stats.closed}</div></div>
-        </div>
-      </section>
-      <section className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="font-medium mb-2">Admin operations</h3>
-        {adminAuctions.length === 0 ? (<div style={{ opacity: 0.7 }}>No auctions.</div>) : (
-          <div style={{ display: 'grid', gap: 8 }}>
+      </div>
+
+      {/* Auction Management */}
+      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6">
+        <h2 className="text-xl font-semibold text-slate-900 mb-6">Manage Your Auctions</h2>
+        {adminAuctions.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="text-4xl mb-4">📋</div>
+            <p className="text-slate-600">No auctions created yet. Create your first auction above!</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
             {adminAuctions.map((a) => (
-              <div key={a.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto', alignItems: 'center', gap: 8 }}>
-                <div>
-                  <strong>{a.title}</strong>
-                  <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 8 }}>status: {a.status}</span>
-                </div>
-                <button onClick={() => props.adminStart(a.id)}>Start</button>
-                <button onClick={() => props.adminReset(a.id)}>Reset</button>
-                <button onClick={() => props.adminEnd(a.id)}>End</button>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => props.adminAccept(a.id)}>Accept</button>
-                  <button onClick={() => props.adminReject(a.id)}>Reject</button>
-                  <button onClick={() => props.adminCounter(a.id)}>Counter</button>
+              <div key={a.id} className="border border-slate-200 rounded-lg p-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-slate-900">{a.title}</h3>
+                    <div className="flex items-center gap-4 mt-1 text-sm text-slate-600">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        a.status === 'live' ? 'bg-green-100 text-green-700' :
+                        a.status === 'scheduled' ? 'bg-blue-100 text-blue-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {a.status}
+                      </span>
+                      <span>Current: ${Number(a.currentPrice).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button 
+                      onClick={() => props.adminStart(a.id)}
+                      className="px-3 py-1 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 transition-colors"
+                    >
+                      Start
+                    </button>
+                    <button 
+                      onClick={() => props.adminReset(a.id)}
+                      className="px-3 py-1 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 transition-colors"
+                    >
+                      Reset
+                    </button>
+                    <button 
+                      onClick={() => props.adminEnd(a.id)}
+                      className="px-3 py-1 bg-orange-600 text-white rounded-md text-sm hover:bg-orange-700 transition-colors"
+                    >
+                      End
+                    </button>
+                    <button 
+                      onClick={() => props.adminAccept(a.id)}
+                      className="px-3 py-1 bg-emerald-600 text-white rounded-md text-sm hover:bg-emerald-700 transition-colors"
+                    >
+                      Accept
+                    </button>
+                    <button 
+                      onClick={() => props.adminReject(a.id)}
+                      className="px-3 py-1 bg-red-600 text-white rounded-md text-sm hover:bg-red-700 transition-colors"
+                    >
+                      Reject
+                    </button>
+                    <button 
+                      onClick={() => props.adminCounter(a.id)}
+                      className="px-3 py-1 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 transition-colors"
+                    >
+                      Counter
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
-      </section>
-      <section style={{ marginTop: 24, border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
-        <h3 style={{ marginTop: 0 }}>Notifications</h3>
-        {notifications.length === 0 ? (<div style={{ opacity: 0.7 }}>No notifications.</div>) : (
-          <ul>{notifications.map((n) => (<li key={n.id}><code style={{ fontSize: 12 }}>{n.type}</code> — {n.payload?.auctionId} {n.payload?.amount ? `($${Number(n.payload.amount).toFixed(2)})` : ''}</li>))}</ul>
+      </div>
+
+      {/* Notifications */}
+      <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6">
+        <h2 className="text-xl font-semibold text-slate-900 mb-6">Recent Notifications</h2>
+        {notifications.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="text-4xl mb-4">🔔</div>
+            <p className="text-slate-600">No notifications yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {notifications.slice(0, 10).map((n) => (
+              <div key={n.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
+                <div className="flex-1">
+                  <span className="font-medium text-slate-900">{n.type}</span>
+                  {n.payload?.auctionId && (
+                    <span className="text-slate-600 ml-2">
+                      Auction: {n.payload.auctionId}
+                      {n.payload?.amount && ` ($${Number(n.payload.amount).toFixed(2)})`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
-      </section>
+      </div>
     </div>
   )
 }
 
 export function App() {
-  const [page, setPage] = useState<'live'|'admin'>('live')
+  const [page, setPage] = useState<'live'|'admin'|'auth'>('live')
   const [items, setItems] = useState<any[]>([])
   const [title, setTitle] = useState('')
   const [startingPrice, setStartingPrice] = useState(0)
@@ -259,7 +647,12 @@ export function App() {
   useEffect(() => {
     if (!sb) return
     sb.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setSession(s))
+    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
+      setSession(s)
+      if (s) {
+        setPage('live') // Redirect to live page after successful login
+      }
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 
@@ -270,10 +663,13 @@ export function App() {
     const { error } = await sb.auth.signInWithPassword({ email, password: pw })
     if (error) alert(error.message)
   }
+  
   async function signOut() {
     if (!sb) return
     await sb.auth.signOut()
+    setPage('live')
   }
+  
   async function signUp(e: React.FormEvent | React.MouseEvent) {
     e.preventDefault()
     if (!sb) return alert('Supabase not configured')
@@ -299,8 +695,8 @@ export function App() {
 
   async function createAuction(e: React.FormEvent) {
     e.preventDefault()
-  if (!session) { alert('Please sign in to host auctions.'); return }
-  const res = await fetch(api('/api/auctions'), {
+    if (!session) { alert('Please sign in to host auctions.'); return }
+    const res = await fetch(api('/api/auctions'), {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({ title, startingPrice, durationMinutes, bidIncrement, goLiveAt: new Date(goLiveAt).toISOString() })
@@ -310,7 +706,7 @@ export function App() {
       setStartingPrice(0)
       setBidIncrement(1)
       load()
-  loadNotifications()
+      loadNotifications()
     } else {
       const t = await res.text(); alert(t)
     }
@@ -357,95 +753,85 @@ export function App() {
     if (res.ok) { loadNotifications(); } else { alert(await res.text()) }
   }
 
+  // Show auth page if not authenticated and trying to access protected content
+  if (!session && (page === 'admin' || page === 'auth')) {
+    return (
+      <>
+        <Navbar session={session} me={me} page={page} setPage={setPage} signOut={signOut} />
+        <AuthPage email={email} setEmail={setEmail} signIn={signIn} signUp={signUp} />
+      </>
+    )
+  }
+
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <header className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">Realtime Auctions</h1>
-          <nav className="flex gap-2">
-            <button className={`btn-secondary ${page==='live' ? 'opacity-50' : ''}`} onClick={() => setPage('live')} disabled={page==='live'}>Live</button>
-            <button className={`btn-secondary ${page==='admin' ? 'opacity-50' : ''}`} onClick={() => setPage('admin')} disabled={page==='admin'}>Admin</button>
-          </nav>
-        </div>
-        <div>
-          {sb ? (
-            session ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-600">{session.user.email || session.user.id}</span>
-                <button className="btn" onClick={signOut}>Sign out</button>
-              </div>
-            ) : (
-              <div className="max-w-md">
-                <div className="bg-white rounded-lg shadow p-4 border border-slate-200">
-                  <h2 className="text-lg font-medium mb-3">Login / Sign up</h2>
-                  <form onSubmit={signIn} className="grid grid-cols-2 gap-3 items-end">
-                    <label className="label col-span-1">
-                      <span className="label">Email</span>
-                      <input className="input" type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-                    </label>
-                    <label className="label col-span-1">
-                      <span className="label">Password</span>
-                      <input id="auth-pw" className="input" type="password" required minLength={6} />
-                    </label>
-                    <div className="col-span-2 flex gap-2">
-                      <button type="submit" className="btn">Login</button>
-                      <button type="button" className="btn-secondary" onClick={signUp}>Sign up</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )
-          ) : (
-            <span className="text-slate-500">Dev mode (no auth)</span>
-          )}
-        </div>
-      </header>
+    <div className="min-h-screen bg-slate-50">
+      <Navbar session={session} me={me} page={page} setPage={setPage} signOut={signOut} />
+      
+      <main className="max-w-6xl mx-auto px-6 py-8">
+        {page === 'live' ? (
+          <div>
+            <div className="mb-8">
+              <h2 className="text-3xl font-bold text-slate-900 mb-2">Live Auctions</h2>
+              <p className="text-slate-600">Bid on exciting items from around the world</p>
+            </div>
+            <LiveAuctions authHeaders={authHeaders} items={items} placeBid={placeBid} />
+          </div>
+        ) : page === 'admin' ? (
+          <div>
+            <div className="mb-8">
+              <h2 className="text-3xl font-bold text-slate-900 mb-2">Host Dashboard</h2>
+              <p className="text-slate-600">Create and manage your auctions</p>
+            </div>
+            <AdminPage
+              authHeaders={authHeaders}
+              load={load}
+              loadAdminAuctions={loadAdminAuctions}
+              adminAuctions={adminAuctions}
+              notifications={notifications}
+              createAuction={createAuction}
+              title={title}
+              setTitle={setTitle}
+              startingPrice={startingPrice}
+              setStartingPrice={setStartingPrice}
+              bidIncrement={bidIncrement}
+              setBidIncrement={setBidIncrement}
+              goLiveAt={goLiveAt}
+              setGoLiveAt={setGoLiveAt}
+              durationMinutes={durationMinutes}
+              setDurationMinutes={setDurationMinutes}
+              adminStart={adminStart}
+              adminReset={adminReset}
+              adminEnd={adminEnd}
+              adminAccept={adminAccept}
+              adminReject={adminReject}
+              adminCounter={adminCounter}
+            />
+          </div>
+        ) : null}
 
-      {page === 'live' ? (
-        <LiveAuctions authHeaders={authHeaders} items={items} placeBid={placeBid} />
-      ) : (
-        <AdminPage
-          authHeaders={authHeaders}
-          load={load}
-          loadAdminAuctions={loadAdminAuctions}
-          adminAuctions={adminAuctions}
-          notifications={notifications}
-          createAuction={createAuction}
-          title={title}
-          setTitle={setTitle}
-          startingPrice={startingPrice}
-          setStartingPrice={setStartingPrice}
-          bidIncrement={bidIncrement}
-          setBidIncrement={setBidIncrement}
-          goLiveAt={goLiveAt}
-          setGoLiveAt={setGoLiveAt}
-          durationMinutes={durationMinutes}
-          setDurationMinutes={setDurationMinutes}
-          adminStart={adminStart}
-          adminReset={adminReset}
-          adminEnd={adminEnd}
-          adminAccept={adminAccept}
-          adminReject={adminReject}
-          adminCounter={adminCounter}
-        />
-      )}
-
-      <section className="mt-6 bg-white border border-slate-200 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-medium">Diagnostics</h3>
-          <button className="btn" onClick={runDiagnostics}>Run checks</button>
-        </div>
-        <div className="text-xs text-slate-500 mt-2">Checks DB, Redis, Supabase, SendGrid, and PUBLIC_ORIGIN (admin only).</div>
-        {diag && (
-          <pre className="mt-3 rounded bg-slate-900 text-slate-100 p-3 overflow-auto">{JSON.stringify(diag, null, 2)}</pre>
+        {/* Diagnostics Section - Only show on live page for admins */}
+        {page === 'live' && me?.isAdmin && (
+          <div className="mt-12 bg-white rounded-xl shadow-lg border border-slate-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900">System Diagnostics</h3>
+              <button 
+                onClick={runDiagnostics}
+                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                Run Checks
+              </button>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Checks database, Redis, Supabase, SendGrid, and system configuration.
+            </p>
+            {diag && (
+              <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-auto text-sm">
+                {JSON.stringify(diag, null, 2)}
+              </pre>
+            )}
+          </div>
         )}
-      </section>
-
-      {me?.isAdmin && page === 'admin' && (
-        <div className="flex justify-end mt-2">
-          <button className="btn-secondary" onClick={loadAdminAuctions}>Refresh admin lists</button>
-        </div>
-      )}
+      </main>
     </div>
   )
 }
