@@ -537,17 +537,17 @@ app.post('/api/auctions/:id/decision', async (req, reply) => {
     const parsed = DecisionSchema.safeParse(req.body)
     if (!parsed.success) return reply.badRequest(parsed.error.message)
     const out = await supaRepo.decision(id, userId, parsed.data.action, parsed.data.amount)
-    if (out.status === 200) {
+  if (out.status === 200) {
       if (parsed.data.action === 'accept' && out.body?.winnerId) {
-        const buyerEmail = await getUserEmail(out.body.winnerId)
-        const sellerEmail = await getUserEmail(out.body.sellerId || userId)
-        const html = buildInvoiceHtml({ auctionTitle: out.body.auctionTitle || 'Auction', amount: Number(out.body.amount), buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: id })
-        if (buyerEmail) await sendEmail(buyerEmail, `You won: ${out.body.auctionTitle || 'Auction'}`, `You won auction ${out.body.auctionTitle || id} for $${Number(out.body.amount).toFixed(2)}`, { html })
-        if (sellerEmail) await sendEmail(sellerEmail, `Sold: ${out.body.auctionTitle || 'Auction'}`, `Your auction ${out.body.auctionTitle || id} sold for $${Number(out.body.amount).toFixed(2)}`, { html })
-        const buyerPhone = await getUserPhone(out.body.winnerId)
-        const sellerPhone = await getUserPhone(out.body.sellerId || userId)
-        if (buyerPhone) await sendSms(buyerPhone, `You won ${out.body.auctionTitle || 'item'} for $${Number(out.body.amount).toFixed(2)}`)
-        if (sellerPhone) await sendSms(sellerPhone, `Sold ${out.body.auctionTitle || 'item'} for $${Number(out.body.amount).toFixed(2)}`)
+    const buyerEmail = await getUserEmail(out.body.winnerId)
+    const sellerEmail = await getUserEmail(out.body.sellerId || userId)
+    const html = buildInvoiceHtml({ auctionTitle: out.body.auctionTitle || 'Auction', amount: Number(out.body.amount), buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: id })
+    try { if (buyerEmail) await sendEmail(buyerEmail, `You won: ${out.body.auctionTitle || 'Auction'}`, `You won auction ${out.body.auctionTitle || id} for $${Number(out.body.amount).toFixed(2)}`, { html }) } catch {}
+    try { if (sellerEmail) await sendEmail(sellerEmail, `Sold: ${out.body.auctionTitle || 'Auction'}`, `Your auction ${out.body.auctionTitle || id} sold for $${Number(out.body.amount).toFixed(2)}`, { html }) } catch {}
+    const buyerPhone = await getUserPhone(out.body.winnerId)
+    const sellerPhone = await getUserPhone(out.body.sellerId || userId)
+    try { if (buyerPhone) await sendSms(buyerPhone, `You won ${out.body.auctionTitle || 'item'} for $${Number(out.body.amount).toFixed(2)}`) } catch {}
+    try { if (sellerPhone) await sendSms(sellerPhone, `Sold ${out.body.auctionTitle || 'item'} for $${Number(out.body.amount).toFixed(2)}`) } catch {}
         const msg = JSON.stringify({ type: 'auction:accepted', auctionId: id, winnerId: out.body.winnerId, amount: Number(out.body.amount) })
         broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
       } else if (parsed.data.action === 'reject') {
@@ -579,13 +579,13 @@ app.post('/api/auctions/:id/decision', async (req, reply) => {
   const buyerEmail = await getUserEmail(topBid.bidderId)
   const sellerEmail = await getUserEmail(a.sellerId)
   const html = buildInvoiceHtml({ auctionTitle: a.title, amount: Number(topBid.amount), buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: a.id })
-  if (buyerEmail) await sendEmail(buyerEmail, `You won: ${a.title}`, `You won auction ${a.title} for $${Number(topBid.amount).toFixed(2)}`, { html })
-  if (sellerEmail) await sendEmail(sellerEmail, `Sold: ${a.title}`, `Your auction ${a.title} sold for $${Number(topBid.amount).toFixed(2)}`, { html })
+  try { if (buyerEmail) await sendEmail(buyerEmail, `You won: ${a.title}`, `You won auction ${a.title} for $${Number(topBid.amount).toFixed(2)}`, { html }) } catch {}
+  try { if (sellerEmail) await sendEmail(sellerEmail, `Sold: ${a.title}`, `Your auction ${a.title} sold for $${Number(topBid.amount).toFixed(2)}`, { html }) } catch {}
   // SMS (best-effort)
   const buyerPhone = await getUserPhone(topBid.bidderId)
   const sellerPhone = await getUserPhone(a.sellerId)
-  if (buyerPhone) await sendSms(buyerPhone, `You won ${a.title} for $${Number(topBid.amount).toFixed(2)}`)
-  if (sellerPhone) await sendSms(sellerPhone, `Sold ${a.title} for $${Number(topBid.amount).toFixed(2)}`)
+  try { if (buyerPhone) await sendSms(buyerPhone, `You won ${a.title} for $${Number(topBid.amount).toFixed(2)}`) } catch {}
+  try { if (sellerPhone) await sendSms(sellerPhone, `Sold ${a.title} for $${Number(topBid.amount).toFixed(2)}`) } catch {}
     return { ok: true }
   }
   if (parsed.data.action === 'reject') {
@@ -617,8 +617,8 @@ app.post('/api/counter/:id/reply', async (req, reply) => {
         const sellerEmail = await getUserEmail(out.body?.sellerId)
         const buyerEmail = await getUserEmail(userId)
         const html = buildInvoiceHtml({ auctionTitle: aTitle, amount, buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: out.body?.auctionId || '' })
-        if (buyerEmail) await sendEmail(buyerEmail, `Offer accepted: ${aTitle}`, `Seller accepted at $${amount.toFixed(2)}`, { html })
-        if (sellerEmail) await sendEmail(sellerEmail, `You accepted: ${aTitle}`, `You accepted the offer at $${amount.toFixed(2)}`, { html })
+  try { if (buyerEmail) await sendEmail(buyerEmail, `Offer accepted: ${aTitle}`, `Seller accepted at $${amount.toFixed(2)}`, { html }) } catch {}
+  try { if (sellerEmail) await sendEmail(sellerEmail, `You accepted: ${aTitle}`, `You accepted the offer at $${amount.toFixed(2)}`, { html }) } catch {}
         const msg = JSON.stringify({ type: 'offer:accepted', auctionId: out.body?.auctionId, amount })
         broadcast(msg); try { await (redisForBids as any)?.publish?.('ws:broadcast', msg) } catch {}
       } else {
@@ -649,12 +649,12 @@ app.post('/api/counter/:id/reply', async (req, reply) => {
   const buyerEmail = await getUserEmail(offer.buyerId)
   const sellerEmail = await getUserEmail(offer.sellerId)
   const html = buildInvoiceHtml({ auctionTitle: a.title, amount: Number(offer.amount), buyerEmail: buyerEmail || 'buyer', sellerEmail: sellerEmail || 'seller', auctionId: a.id })
-  if (buyerEmail) await sendEmail(buyerEmail, `Offer accepted: ${a.title}`, `Seller accepted at $${Number(offer.amount).toFixed(2)}`, { html })
-  if (sellerEmail) await sendEmail(sellerEmail, `You accepted: ${a.title}`, `You accepted the offer at $${Number(offer.amount).toFixed(2)}`, { html })
+  try { if (buyerEmail) await sendEmail(buyerEmail, `Offer accepted: ${a.title}`, `Seller accepted at $${Number(offer.amount).toFixed(2)}`, { html }) } catch {}
+  try { if (sellerEmail) await sendEmail(sellerEmail, `You accepted: ${a.title}`, `You accepted the offer at $${Number(offer.amount).toFixed(2)}`, { html }) } catch {}
   const buyerPhone = await getUserPhone(offer.buyerId)
   const sellerPhone = await getUserPhone(offer.sellerId)
-  if (buyerPhone) await sendSms(buyerPhone, `Seller accepted your offer for ${a.title} at $${Number(offer.amount).toFixed(2)}`)
-  if (sellerPhone) await sendSms(sellerPhone, `You accepted buyer offer for ${a.title} at $${Number(offer.amount).toFixed(2)}`)
+  try { if (buyerPhone) await sendSms(buyerPhone, `Seller accepted your offer for ${a.title} at $${Number(offer.amount).toFixed(2)}`) } catch {}
+  try { if (sellerPhone) await sendSms(sellerPhone, `You accepted buyer offer for ${a.title} at $${Number(offer.amount).toFixed(2)}`) } catch {}
   } else {
     offer.status = 'rejected' as any
     await offer.save()
