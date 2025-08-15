@@ -65,6 +65,7 @@ app.get('/health', async () => ({ ok: true }));
 app.get('/config', async () => ({
   supabaseUrl: process.env.SUPABASE_URL || null,
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
+  publicOrigin: process.env.PUBLIC_ORIGIN || null,
 }))
 
 // Admin diagnostics: checks DB/Redis/env and optionally attempts connections.

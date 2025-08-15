@@ -229,6 +229,7 @@ function AuthPage({ email, setEmail, signIn, signUp, supabaseConfigured }: {
 }
 
 function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; items: any[]; placeBid: (id: string, amount: number) => Promise<void> }) {
+  const [custom, setCustom] = useState<Record<string, string>>({})
   if (items.length === 0) {
     return (
       <div className="text-center py-12">
@@ -272,7 +273,7 @@ function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; item
                     <div className="text-sm text-slate-600 mb-2">
                       Ends in {h}h {m}m {s}s
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
                       <button 
                         onClick={() => placeBid(a.id, Number(a.currentPrice) + 1)}
                         className="flex-1 bg-indigo-600 text-white py-2 px-3 rounded-lg font-medium hover:bg-indigo-700 transition-colors text-sm"
@@ -285,14 +286,23 @@ function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; item
                       >
                         +$5
                       </button>
-                      <button 
+                      <input
+                        type="number"
+                        min={Number(a.currentPrice) + Number(a.bidIncrement || 1)}
+                        step={1}
+                        value={custom[a.id] ?? ''}
+                        onChange={(e) => setCustom((m) => ({ ...m, [a.id]: e.target.value }))}
+                        placeholder={`$${(Number(a.currentPrice) + Number(a.bidIncrement || 1)).toFixed(2)}`}
+                        className="w-28 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                      />
+                      <button
                         onClick={() => {
-                          const amt = Number(prompt(`Enter bid amount (min: $${(Number(a.currentPrice) + Number(a.bidIncrement || 1)).toFixed(2)})`))
-                          if (!isNaN(amt)) placeBid(a.id, amt)
+                          const v = Number(custom[a.id])
+                          if (!isNaN(v) && v > 0) placeBid(a.id, v)
                         }}
-                        className="flex-1 border border-indigo-600 text-indigo-600 py-2 px-3 rounded-lg font-medium hover:bg-indigo-50 transition-colors text-sm"
+                        className="px-3 py-2 border border-indigo-600 text-indigo-600 rounded-lg font-medium hover:bg-indigo-50 transition-colors text-sm"
                       >
-                        Custom
+                        Bid
                       </button>
                     </div>
                   </div>
@@ -328,8 +338,9 @@ function AdminPage(props: {
   adminEnd: (id: string) => Promise<void>; 
   adminAccept: (id: string) => Promise<void>; 
   adminReject: (id: string) => Promise<void>; 
-  adminCounter: (id: string) => Promise<void>; 
+  adminCounter: (id: string, amount: number) => Promise<void>; 
 }) {
+  const [counterAmt, setCounterAmt] = useState<Record<string, string>>({})
   const { adminAuctions, notifications } = props
   const stats = useMemo(() => {
     const s = { total: adminAuctions.length, live: 0, scheduled: 0, ended: 0, closed: 0 }
@@ -509,11 +520,36 @@ function AdminPage(props: {
                       Reject
                     </button>
                     <button 
-                      onClick={() => props.adminCounter(a.id)}
+                      onClick={async () => {
+                        const amt = Number(counterAmt[a.id])
+                        if (!amt || isNaN(amt)) return
+                        await props.adminCounter(a.id, amt)
+                      }}
                       className="px-3 py-1 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 transition-colors"
                     >
                       Counter
                     </button>
+                    <div className="flex items-center gap-2 ml-2">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={counterAmt[a.id] ?? ''}
+                        onChange={(e) => setCounterAmt((m) => ({ ...m, [a.id]: e.target.value }))}
+                        placeholder="Counter $"
+                        className="w-28 px-2 py-1 border border-slate-300 rounded-md text-sm"
+                      />
+                      <button
+                        onClick={async () => {
+                          const amt = Number(counterAmt[a.id])
+                          if (!amt || isNaN(amt)) return
+                          await props.adminCounter(a.id, amt)
+                        }}
+                        className="px-3 py-1 border border-purple-600 text-purple-600 rounded-md text-sm hover:bg-purple-50"
+                      >
+                        Send
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -692,9 +728,15 @@ export function App() {
   
   async function signUp(e: React.FormEvent | React.MouseEvent) {
     e.preventDefault()
-  if (!sb) return alert('Supabase not configured')
+    if (!sb) return alert('Supabase not configured')
     const pw = (document.getElementById('auth-pw') as HTMLInputElement)?.value || ''
-    const { error } = await sb.auth.signUp({ email, password: pw, options: { emailRedirectTo: location.origin } })
+    let redirect = location.origin
+    try {
+      const res = await fetch(api('/config'))
+      const cfg = await res.json()
+      if (cfg?.publicOrigin) redirect = cfg.publicOrigin
+    } catch {}
+    const { error } = await sb.auth.signUp({ email, password: pw, options: { emailRedirectTo: redirect } })
     if (error) alert(error.message)
     else alert('Verification email sent. Please verify your email, then log in.')
   }
@@ -743,19 +785,19 @@ export function App() {
   }
 
   async function adminStart(id: string) {
-    const res = await fetch(api(`/host/auctions/${id}/start`), { method: 'POST', headers: authHeaders })
+    const res = await fetch(api(`/host/auctions/${id}/start`), { method: 'POST', headers: authHeaders, body: JSON.stringify({}) })
     if (res.ok) { loadAdminAuctions(); load(); return }
-    const r2 = await fetch(api(`/admin/auctions/${id}/start`), { method: 'POST', headers: authHeaders })
+    const r2 = await fetch(api(`/admin/auctions/${id}/start`), { method: 'POST', headers: authHeaders, body: JSON.stringify({}) })
     if (r2.ok) { loadAdminAuctions(); load() } else { alert(await r2.text()) }
   }
   async function adminReset(id: string) {
-    const res = await fetch(api(`/host/auctions/${id}/reset`), { method: 'POST', headers: authHeaders })
+    const res = await fetch(api(`/host/auctions/${id}/reset`), { method: 'POST', headers: authHeaders, body: JSON.stringify({}) })
     if (res.ok) { loadAdminAuctions(); load(); return }
-    const r2 = await fetch(api(`/admin/auctions/${id}/reset`), { method: 'POST', headers: authHeaders })
+    const r2 = await fetch(api(`/admin/auctions/${id}/reset`), { method: 'POST', headers: authHeaders, body: JSON.stringify({}) })
     if (r2.ok) { loadAdminAuctions(); load() } else { alert(await r2.text()) }
   }
   async function adminEnd(id: string) {
-    const res = await fetch(api(`/api/auctions/${id}/end`), { method: 'POST', headers: authHeaders })
+    const res = await fetch(api(`/api/auctions/${id}/end`), { method: 'POST', headers: authHeaders, body: JSON.stringify({}) })
     if (res.ok) { loadAdminAuctions(); loadNotifications(); load() } else { alert(await res.text()) }
   }
   async function adminAccept(id: string) {
@@ -766,10 +808,8 @@ export function App() {
     const res = await fetch(api(`/api/auctions/${id}/decision`), { method: 'POST', headers: authHeaders, body: JSON.stringify({ action: 'reject' }) })
     if (res.ok) { loadNotifications(); loadAdminAuctions(); } else { alert(await res.text()) }
   }
-  async function adminCounter(id: string) {
-    const amt = Number(prompt('Enter counter-offer amount') || '')
-    if (!amt || isNaN(amt)) return
-    const res = await fetch(api(`/api/auctions/${id}/decision`), { method: 'POST', headers: authHeaders, body: JSON.stringify({ action: 'counter', amount: amt }) })
+  async function adminCounter(id: string, amount: number) {
+    const res = await fetch(api(`/api/auctions/${id}/decision`), { method: 'POST', headers: authHeaders, body: JSON.stringify({ action: 'counter', amount }) })
     if (res.ok) { loadNotifications(); } else { alert(await res.text()) }
   }
 
