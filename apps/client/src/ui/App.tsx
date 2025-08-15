@@ -212,6 +212,7 @@ export function App() {
   }
 
   async function loadAdminAuctions() {
+    if (!session) return
     try {
       // Prefer host-owned list if authenticated; fallback to global admin list
       const hostRes = await fetch(api('/host/auctions'), { headers: authHeaders })
@@ -240,13 +241,15 @@ export function App() {
 
   useEffect(() => {
     load()
-  loadMe()
-  loadNotifications()
-  }, [])
+    if (session) {
+      loadMe()
+      loadNotifications()
+    }
+  }, [session])
 
   // Load admin/host auctions when switching to Admin page or after login/logout
   useEffect(() => {
-    if (page === 'admin') {
+    if (page === 'admin' && session) {
       loadAdminAuctions()
       loadNotifications()
     }
