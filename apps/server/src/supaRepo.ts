@@ -137,10 +137,15 @@ export async function counterReply(counterId: string, userId: string, accept: bo
   if (accept) {
     await supa.from('counter_offers').update({ status: 'accepted' }).eq('id', counterId)
     await supa.from('auctions').update({ currentPrice: c.amount, status: 'closed' }).eq('id', c.auctionId)
+  // Notify buyer (current user) and seller of acceptance
+  await supa.from('notifications').insert({ id: nanoid(12), userId: c.buyerId, type: 'offer:accepted', payload: { auctionId: c.auctionId, amount: Number(c.amount) }, read: false })
+  await supa.from('notifications').insert({ id: nanoid(12), userId: a.sellerId, type: 'offer:accepted', payload: { auctionId: c.auctionId, amount: Number(c.amount) }, read: false })
     return { status: 200, body: { ok: true, amount: Number(c.amount), auctionId: c.auctionId, sellerId: a.sellerId, auctionTitle: a.title } }
   } else {
     await supa.from('counter_offers').update({ status: 'rejected' }).eq('id', counterId)
     await supa.from('auctions').update({ status: 'closed' }).eq('id', c.auctionId)
+  // Notify buyer of rejection
+  await supa.from('notifications').insert({ id: nanoid(12), userId: c.buyerId, type: 'offer:rejected', payload: { auctionId: c.auctionId }, read: false })
     return { status: 200, body: { ok: true, auctionId: c.auctionId, sellerId: a.sellerId } }
   }
 }

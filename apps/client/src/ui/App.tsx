@@ -80,21 +80,57 @@ function LiveAuctions({ authHeaders, items, placeBid }: { authHeaders: any; item
 
 function AdminPage(props: { authHeaders: any; load: () => Promise<void>; loadAdminAuctions: () => Promise<void>; adminAuctions: any[]; notifications: any[]; createAuction: (e: React.FormEvent) => Promise<void>; title: string; setTitle: any; startingPrice: number; setStartingPrice: any; bidIncrement: number; setBidIncrement: any; goLiveAt: string; setGoLiveAt: any; durationMinutes: number; setDurationMinutes: any; adminStart: (id: string) => Promise<void>; adminReset: (id: string) => Promise<void>; adminEnd: (id: string) => Promise<void>; adminAccept: (id: string) => Promise<void>; adminReject: (id: string) => Promise<void>; adminCounter: (id: string) => Promise<void>; }) {
   const { adminAuctions, notifications } = props
+  const stats = useMemo(() => {
+    const s = { total: adminAuctions.length, live: 0, scheduled: 0, ended: 0, closed: 0 }
+    for (const a of adminAuctions) {
+      const st = String(a.status || '').toLowerCase()
+      if (st in s) (s as any)[st]++
+    }
+    return s
+  }, [adminAuctions])
   return (
-    <div>
-      <section style={{ border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, marginBottom: 24, background: '#fff' }}>
-        <h3 style={{ marginTop: 0 }}>Host auction</h3>
-        <form onSubmit={props.createAuction} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px 240px 140px 120px', gap: 12, alignItems: 'end' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Title<input placeholder="Vintage camera" value={props.title} onChange={(e) => props.setTitle(e.target.value)} /></label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Starting Price<input type="number" min={0} step={1} value={props.startingPrice} onChange={(e) => props.setStartingPrice(Number(e.target.value))} /></label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Bid Increment<input type="number" min={1} step={1} value={props.bidIncrement} onChange={(e) => props.setBidIncrement(Number(e.target.value))} /></label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Go-live<input type="datetime-local" value={props.goLiveAt} onChange={(e) => props.setGoLiveAt(e.target.value)} /></label>
-          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>Duration (mins)<input type="number" min={1} step={1} value={props.durationMinutes} onChange={(e) => props.setDurationMinutes(Number(e.target.value))} /></label>
-          <button>Create</button>
+    <div className="space-y-6">
+      <section className="bg-white border border-slate-200 rounded-lg p-4">
+        <h3 className="font-medium mb-3">Host auction</h3>
+        <form onSubmit={props.createAuction} className="grid grid-cols-6 gap-3 items-end">
+          <label className="col-span-2">
+            <span className="label">Title</span>
+            <input className="input" placeholder="Vintage camera" value={props.title} onChange={(e) => props.setTitle(e.target.value)} />
+          </label>
+          <label>
+            <span className="label">Starting Price</span>
+            <input className="input" type="number" min={0} step={1} value={props.startingPrice} onChange={(e) => props.setStartingPrice(Number(e.target.value))} />
+          </label>
+          <label>
+            <span className="label">Bid Increment</span>
+            <input className="input" type="number" min={1} step={1} value={props.bidIncrement} onChange={(e) => props.setBidIncrement(Number(e.target.value))} />
+          </label>
+          <label className="col-span-2">
+            <span className="label">Go-live</span>
+            <input className="input" type="datetime-local" value={props.goLiveAt} onChange={(e) => props.setGoLiveAt(e.target.value)} />
+          </label>
+          <label>
+            <span className="label">Duration (mins)</span>
+            <input className="input" type="number" min={1} step={1} value={props.durationMinutes} onChange={(e) => props.setDurationMinutes(Number(e.target.value))} />
+          </label>
+          <div className="col-span-5"></div>
+          <button className="btn">Create</button>
         </form>
       </section>
-      <section style={{ border: '1px solid #e6eaf0', padding: 16, borderRadius: 12, background: '#fff' }}>
-        <h3 style={{ marginTop: 0 }}>Admin operations</h3>
+      <section className="bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-medium">Admin dashboard</h3>
+          <div className="text-xs text-slate-500">Overview of your auctions</div>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          <div className="rounded-md border border-slate-200 p-3"><div className="text-xs text-slate-500">Total</div><div className="text-xl font-semibold">{stats.total}</div></div>
+          <div className="rounded-md border border-slate-200 p-3"><div className="text-xs text-slate-500">Live</div><div className="text-xl font-semibold">{stats.live}</div></div>
+          <div className="rounded-md border border-slate-200 p-3"><div className="text-xs text-slate-500">Scheduled</div><div className="text-xl font-semibold">{stats.scheduled}</div></div>
+          <div className="rounded-md border border-slate-200 p-3"><div className="text-xs text-slate-500">Closed</div><div className="text-xl font-semibold">{stats.ended + stats.closed}</div></div>
+        </div>
+      </section>
+      <section className="bg-white border border-slate-200 rounded-lg p-4">
+        <h3 className="font-medium mb-2">Admin operations</h3>
         {adminAuctions.length === 0 ? (<div style={{ opacity: 0.7 }}>No auctions.</div>) : (
           <div style={{ display: 'grid', gap: 8 }}>
             {adminAuctions.map((a) => (
@@ -207,6 +243,14 @@ export function App() {
   loadMe()
   loadNotifications()
   }, [])
+
+  // Load admin/host auctions when switching to Admin page or after login/logout
+  useEffect(() => {
+    if (page === 'admin') {
+      loadAdminAuctions()
+      loadNotifications()
+    }
+  }, [page, session])
 
   // Supabase session
   useEffect(() => {
